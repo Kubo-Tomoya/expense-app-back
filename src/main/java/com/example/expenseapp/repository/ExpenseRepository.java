@@ -13,10 +13,10 @@ import com.example.expenseapp.entity.Expense;
 public interface ExpenseRepository extends JpaRepository<Expense, Integer>{
 	
 	// 月別で経費一覧を取得（expense_dateの年月で絞り込み）
-    @Query("SELECT e FROM Expense e " +
-           "WHERE FUNCTION('DATE_FORMAT', e.expenseDate, '%Y-%m') = :month " +
-           "ORDER BY e.expenseDate DESC")
-    List<Expense> findByMonth(@Param("month") String month);
+	@Query(value = "SELECT * FROM expenses e WHERE e.deleted_at IS NULL " +
+	        "AND TO_CHAR(e.expense_date, 'YYYY-MM') = :month " +
+	        "ORDER BY e.expense_date DESC", nativeQuery = true)
+	List<Expense> findByMonth(@Param("month") String month);
 
     // 年別・月別の集計データを取得
     @Query("SELECT MONTH(e.expenseDate), " +
