@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.example.expenseapp.dto.request.ExpenseRequestDto;
 import com.example.expenseapp.dto.response.ExpenseResponseDto;
@@ -86,6 +87,15 @@ public class ExpenseController {
             @RequestParam(required = false) Integer month) {
         SummaryResponseDto summary = expenseService.getSummary(year, month);
         return ResponseEntity.ok(summary);
+    }
+    
+    //領収書アップロード機能の追加
+    @PostMapping("/{id}/receipt")
+    public ResponseEntity<ExpenseResponseDto> uploadReceipt(
+            @PathVariable Integer id,
+            @RequestParam("file") MultipartFile file) {
+        ExpenseResponseDto expense = expenseService.uploadReceipt(id, file);
+        return ResponseEntity.ok(expense);
     }
 
 }

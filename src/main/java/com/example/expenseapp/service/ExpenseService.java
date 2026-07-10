@@ -1,5 +1,10 @@
 package com.example.expenseapp.service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
@@ -8,6 +13,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.example.expenseapp.dto.request.ExpenseRequestDto;
 import com.example.expenseapp.dto.response.ExpenseResponseDto;
@@ -140,6 +146,41 @@ public class ExpenseService {
         expense.setMemo(dto.getMemo());
         expense.setStatus(dto.getStatus());
         return expense;
+    }
+    
+    // 領収書アップロード
+    public ExpenseResponseDto uploadReceipt(Integer id, MultipartFile file) {
+        Expense expense = expenseRepository.findById(id)
+            .orElseThrow(() ->
+                new RuntimeException("経費が見つかりません。ID: " + id));
+
+        if (file.isEmpty()) {
+            throw new RuntimeException("ファイルが空です");
+        }
+        String contentType = file.getContentType();
+        if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
+            throw new RuntimeException("JPEGまたはPNG形式のみアップロード可能です");
+        }
+        if (file.getSize() > 5 * 1024 * 1024) {
+            throw new RuntimeException("ファイルサイズは5MB以内にしてください");
+        }
+
+        try {
+            Path uploadPath = Paths.get("uploads");
+            if (!Files.exists(uploadPath)) {
+                Files.createDirectories(uploadPath);
+            }
+            String extension = "image/png".equals(contentType) ? ".png" : ".jpg";
+            String fileName = "receipt_" + id + "_" + System.currentTimeMillis() + extension;
+            Files.copy(file.getInputStream(), uploadPath.resolve(fileName), StandardCopyOption.REPLACE_EXISTING);
+
+            expense.setReceiptImagePath("/uploads/" + fileName);
+            expense.setUpdatedAt(LocalDateTime.now());
+            Expense saved = expenseRepository.save(expense);
+            return toResponseDto(saved);
+        } catch (IOException e) {
+            throw new RuntimeException("ファイル保存に失敗しました", e);
+        }
     }
 
 }
