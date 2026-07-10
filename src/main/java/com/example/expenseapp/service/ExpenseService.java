@@ -6,9 +6,12 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 
 import org.springframework.stereotype.Service;
@@ -17,7 +20,9 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.example.expenseapp.dto.request.ExpenseRequestDto;
 import com.example.expenseapp.dto.response.ExpenseResponseDto;
+import com.example.expenseapp.dto.response.MonthlySummaryResponseDto;
 import com.example.expenseapp.dto.response.SummaryResponseDto;
+import com.example.expenseapp.dto.response.YearSummaryResponseDto;
 import com.example.expenseapp.entity.Category;
 import com.example.expenseapp.entity.Expense;
 import com.example.expenseapp.repository.CategoryRepository;
@@ -94,7 +99,7 @@ public class ExpenseService {
         expenseRepository.delete(expense);
     }
 
-    // 月次集計取得
+    // 月次集計取得（S-00ダッシュボード用：指定した1年・1月の合計を返す）
     public SummaryResponseDto getSummary(Integer year, Integer month) {
         List<Object[]> results =
             expenseRepository.findSummaryByYear(year);
@@ -114,6 +119,51 @@ public class ExpenseService {
         dto.setMonth(month);
         dto.setTotalAmount(totalAmount);
         dto.setCategoryBreakdown(categoryBreakdown);
+        return dto;
+    }
+
+    /**
+     * 年間集計取得（S-04集計画面用）。
+     * 指定した1年分の経費を「月×カテゴリ」の内訳付きで集計する。
+     *
+     * 既存の findSummaryByYear（月・カテゴリごとにSUMしたSQL結果）を再利用し、
+     * バラバラな行データを「1〜12月、各月ごとのカテゴリ内訳」という
+     * 画面が扱いやすい形に組み立て直しているだけで、新しいSQLは発行していない。
+     *
+     * データが存在しない月も0円の月として結果に含める
+     * （そうしないと集計テーブルの行が歯抜けになるため）。
+     */
+    public YearSummaryResponseDto getYearlySummary(Integer year) {
+        List<Object[]> results = expenseRepository.findSummaryByYear(year);
+
+        // 月ごとに「カテゴリ名→金額」のマップを溜めていく（TreeMapで1月→12月の順を保証）
+        Map<Integer, Map<String, Integer>> byMonth = new TreeMap<>();
+        // カテゴリ別の年間合計（画面の「カテゴリ別モード」用）
+        Map<String, Integer> categoryTotals = new HashMap<>();
+        int totalAmount = 0;
+
+        for (Object[] row : results) {
+            Integer m = ((Number) row[0]).intValue();
+            String categoryName = (String) row[1];
+            Integer amount = ((Number) row[2]).intValue();
+            byMonth.computeIfAbsent(m, k -> new HashMap<>()).merge(categoryName, amount, Integer::sum);
+            categoryTotals.merge(categoryName, amount, Integer::sum);
+            totalAmount += amount;
+        }
+
+        // 1〜12月を必ず埋めて、データが無い月も0円として結果に含める
+        List<MonthlySummaryResponseDto> monthly = new ArrayList<>();
+        for (int m = 1; m <= 12; m++) {
+            Map<String, Integer> breakdown = byMonth.getOrDefault(m, Collections.emptyMap());
+            int monthTotal = breakdown.values().stream().mapToInt(Integer::intValue).sum();
+            monthly.add(new MonthlySummaryResponseDto(m, monthTotal, breakdown));
+        }
+
+        YearSummaryResponseDto dto = new YearSummaryResponseDto();
+        dto.setYear(year);
+        dto.setTotalAmount(totalAmount);
+        dto.setCategoryTotals(categoryTotals);
+        dto.setMonthly(monthly);
         return dto;
     }
 
@@ -147,7 +197,7 @@ public class ExpenseService {
         expense.setStatus(dto.getStatus());
         return expense;
     }
-    
+
     // 領収書アップロード
     public ExpenseResponseDto uploadReceipt(Integer id, MultipartFile file) {
         Expense expense = expenseRepository.findById(id)
