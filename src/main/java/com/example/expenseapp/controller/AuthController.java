@@ -20,6 +20,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.example.expenseapp.dto.request.LoginRequestDto;
+import com.example.expenseapp.dto.request.PasswordResetConfirmDto;
+import com.example.expenseapp.dto.request.PasswordResetRequestDto;
 import com.example.expenseapp.dto.request.RegisterRequestDto;
 import com.example.expenseapp.dto.response.UserResponseDto;
 import com.example.expenseapp.entity.User;
@@ -98,6 +100,21 @@ public class AuthController {
         UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
         User user = principal.getUser();
         return ResponseEntity.ok(new UserResponseDto(user.getId(), user.getEmail()));
+    }
+    
+ // POST /api/auth/password-reset/request：パスワード再設定の依頼（ステップ1）
+    @PostMapping("/password-reset/request")
+    public ResponseEntity<Void> requestPasswordReset(@Valid @RequestBody PasswordResetRequestDto dto) {
+        authService.requestPasswordReset(dto);
+        // メールアドレスの存在有無に関わらず、常に同じレスポンスを返す（情報漏洩防止のため）
+        return ResponseEntity.noContent().build();
+    }
+
+    // POST /api/auth/password-reset/confirm：パスワード再設定の確定（ステップ2）
+    @PostMapping("/password-reset/confirm")
+    public ResponseEntity<Void> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmDto dto) {
+        authService.confirmPasswordReset(dto);
+        return ResponseEntity.noContent().build();
     }
 
 }
