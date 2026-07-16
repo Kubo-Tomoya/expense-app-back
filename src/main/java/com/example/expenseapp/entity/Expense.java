@@ -29,6 +29,12 @@ public class Expense {
 	@Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Integer id;
+	
+	// 追加するフィールド（category と同様の書き方）
+	// この経費を登録したユーザー。他ユーザーのデータと混在しないよう必須項目とする
+	@ManyToOne
+	@JoinColumn(name = "user_id", nullable = false)
+	private User user;
 
     @Column(name = "title", nullable = false, length = 100)
     private String title;
