@@ -77,11 +77,15 @@ public class AuthService {
         user.setUpdatedAt(LocalDateTime.now());
         User saved = userRepository.save(user);
 
-        // 新規登録者にデフォルトカテゴリ5件を自動コピーする（F-14 完了分）
-        for (String name : DEFAULT_CATEGORY_NAMES) {
+        // display_orderは「交通費→食費→通信費→消耗品費→その他」の順で
+        // 画面に表示させたいため、リストのインデックス（0,1,2,3,4）をそのまま採用する
+        LocalDateTime now = LocalDateTime.now();
+        for (int i = 0; i < DEFAULT_CATEGORY_NAMES.size(); i++) {
             Category category = new Category();
             category.setUser(saved);
-            category.setName(name);
+            category.setName(DEFAULT_CATEGORY_NAMES.get(i));
+            category.setDisplayOrder(i);
+            category.setCreatedAt(now);
             categoryRepository.save(category);
         }
 

@@ -12,6 +12,11 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfFilter;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
+
+import com.example.expenseapp.security.CsrfCookieFilter;
 
 /**
  * 認証・認可まわりの方針をまとめて設定するクラス。
@@ -40,11 +45,18 @@ public class SecurityConfig {
         http
             // CORS設定自体はWebConfig側で一元管理しているため、ここでは有効化のみ指定
             .cors(cors -> {})
-            // 本来セッションCookie方式ではCSRF対策が必須だが、
-            // フロント側にCSRFトークンの送受信を実装するコストを避けるため、
-            // 開発優先度を考慮して現時点では無効化している。
-            // 【重要・要対応】本番リリース前には必ずCSRFトークン対応を追加すること
-            .csrf(csrf -> csrf.disable())
+	         // 修正後：
+	         // CSRFトークンをCookie（XSRF-TOKEN）として発行する。withHttpOnlyFalse()により
+	         // JavaScript側からCookieの値を読み取れるようにする
+	         // （セッションCookie自体は引き続きHttpOnlyのままなので、認証情報の安全性は損なわれない）
+	         .csrf(csrf -> csrf
+	             .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+	             // BREACH対策のXOR方式ではなく、生のトークン値をそのまま扱うハンドラーに変更。
+	             // フロント側でCookieの値をそのままヘッダーに載せ返すシンプルな方式と合わせるため
+	             .csrfTokenRequestHandler(new CsrfTokenRequestAttributeHandler())
+	         )
+	         // CsrfFilterの直後に差し込み、全リクエストでトークンを強制的に解決させる
+	         .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
             // 必要な時だけセッションを作成する（ログインしていないアクセスで無駄にセッションを作らない）
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             .authorizeHttpRequests(auth -> auth
