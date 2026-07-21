@@ -46,7 +46,8 @@ public class ExpenseService {
     }
 
     // 経費一覧取得（月指定）
-    // 全てuserを引数として受け取り、絞り込みに使う
+    // 一覧表示は確定・下書き問わず全件返す（下書きも一覧上で見返せる必要があるため、
+    // F-27対応でもここは変更しない。フロント側でstatusに応じたバッジ表示を行う）
     public List<ExpenseResponseDto> findAll(User user, String month) {
         List<Expense> expenses;
         if (month != null && !month.isEmpty()) {
@@ -109,14 +110,23 @@ public class ExpenseService {
         expenseRepository.delete(expense);
     }
 
-    // 月次集計取得（S-00ダッシュボード用：指定した1年・1月の合計を返す）
-    // 集計対象を自分のuser_idの経費のみに絞り込む
+    /**
+     * 月次集計取得（S-00ダッシュボード用：指定した1年・1月の合計を返す）。
+     *
+     * F-27対応：確定分（registered）と下書き分（draft）を別々に集計する。
+     * 確定分はtotalAmount・categoryBreakdownに、下書き分は合算した金額のみ
+     * draftAmountに格納する（ダッシュボードの「予測モード」はフロント側で
+     * totalAmount + draftAmountを計算して表示する想定）
+     */
     public SummaryResponseDto getSummary(User user, Integer year, Integer month) {
-        List<Object[]> results =
-            expenseRepository.findSummaryByUserIdAndYear(user.getId(), year);
+        List<Object[]> confirmedResults =
+            expenseRepository.findSummaryByUserIdAndYearAndStatus(user.getId(), year, "registered");
+        List<Object[]> draftResults =
+            expenseRepository.findSummaryByUserIdAndYearAndStatus(user.getId(), year, "draft");
+
         Map<String, Integer> categoryBreakdown = new HashMap<>();
         int totalAmount = 0;
-        for (Object[] row : results) {
+        for (Object[] row : confirmedResults) {
             Integer rowMonth = ((Number) row[0]).intValue();
             String categoryName = (String) row[1];
             Integer amount = ((Number) row[2]).intValue();
@@ -125,11 +135,22 @@ public class ExpenseService {
                 totalAmount += amount;
             }
         }
+
+        int draftAmount = 0;
+        for (Object[] row : draftResults) {
+            Integer rowMonth = ((Number) row[0]).intValue();
+            Integer amount = ((Number) row[2]).intValue();
+            if (month == null || rowMonth.equals(month)) {
+                draftAmount += amount;
+            }
+        }
+
         SummaryResponseDto dto = new SummaryResponseDto();
         dto.setYear(year);
         dto.setMonth(month);
         dto.setTotalAmount(totalAmount);
         dto.setCategoryBreakdown(categoryBreakdown);
+        dto.setDraftAmount(draftAmount);
         return dto;
     }
 
@@ -137,9 +158,13 @@ public class ExpenseService {
      * 年間集計取得（S-04集計画面用）。
      * 指定した1年分の経費を「月×カテゴリ」の内訳付きで集計する。
      *
-     * 既存の findSummaryByUserIdAndYear（ユーザー・月・カテゴリごとにSUMしたSQL結果）を再利用し、
+     * findSummaryByUserIdAndYear（月・カテゴリごとにSUMしたSQL結果）を再利用し、
      * バラバラな行データを「1〜12月、各月ごとのカテゴリ内訳」という
      * 画面が扱いやすい形に組み立て直しているだけで、新しいSQLは発行していない。
+     *
+     * F-27対応：findSummaryByUserIdAndYear自体をRepository側でregisteredのみに
+     * 絞り込むよう修正済みのため、このメソッドの実装自体に変更はない
+     * （年間集計・集計画面は下書きを含めない設計方針のため）。
      *
      * データが存在しない月も0円の月として結果に含める
      * （そうしないと集計テーブルの行が歯抜けになるため）。
