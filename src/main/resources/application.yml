@@ -16,5 +16,19 @@ spring:
    multipart:
     max-file-size: 5MB
     max-request-size: 5MB
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: ${MAIL_USERNAME}      # Gmailアドレス（環境変数で管理し、直接コードに書かない）
+    password: ${MAIL_APP_PASSWORD}  # Gmailの「アプリパスワード」。通常のログインパスワードではない点に注意
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+app:
+   # パスワード再設定メール内のリンク生成に使用するフロントエンドのURL
+   frontend-url: http://localhost:5173
 server:
   port: 8080
