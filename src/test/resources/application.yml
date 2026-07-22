@@ -1,0 +1,11 @@
+# テスト実行時のみ有効な設定。
+# spring.sql.init.mode=always を指定しないと、Testcontainers等の
+# 「外部DB相当」の接続では、schema.sqlが自動実行されない
+# （Spring Bootのデフォルトは、H2等の組み込みDBでしか自動実行しない仕様のため）
+spring:
+  sql:
+    init:
+      mode: always
+  jpa:
+    hibernate:
+      ddl-auto: validate
