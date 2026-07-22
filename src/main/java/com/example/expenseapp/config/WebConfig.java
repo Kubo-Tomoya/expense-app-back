@@ -26,17 +26,15 @@ public class WebConfig implements WebMvcConfigurer {
                 .addResourceLocations("file:uploads/");
     }
 	
-	/**
-     * /api配下の全エンドポイントに対して、Reactの開発サーバー（localhost:5173）
-     * からのアクセスを許可する。
-     * 本番環境でフロントのオリジンが変わる場合は、ここの allowedOrigins を修正する。
-     */
-    @Override
-    public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/api/**")
-                .allowedOrigins("http://localhost:5173")
-                .allowedMethods("GET", "POST", "PUT", "DELETE")
-                .allowedHeaders("*");
-    }
-
+	// allowCredentials(true)を追加し、Cookie（セッションCookie・CSRFトークン）の
+	// やり取りを許可する。これが無いと、ブラウザがwithCredentials付きのリクエストを
+	// 送った際に、サーバー側からの応答が拒否されてしまう
+	@Override
+	public void addCorsMappings(CorsRegistry registry) {
+	    registry.addMapping("/api/**")
+	            .allowedOrigins("http://localhost:5173")
+	            .allowedMethods("GET", "POST", "PUT", "DELETE")
+	            .allowedHeaders("*")
+	            .allowCredentials(true);
+	}
 }

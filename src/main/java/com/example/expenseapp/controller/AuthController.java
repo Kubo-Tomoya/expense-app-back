@@ -94,13 +94,23 @@ public class AuthController {
      * GET /api/auth/me：ログイン中ユーザーの情報を取得
      * フロント側が画面初期表示時に呼び出し、「ログイン済みかどうか」を判定するために使う
      */
-    @GetMapping("/me")
-    public ResponseEntity<UserResponseDto> me() {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
-        User user = principal.getUser();
-        return ResponseEntity.ok(new UserResponseDto(user.getId(), user.getEmail()));
-    }
+	 // 未ログイン時、authentication.getPrincipal()はUserPrincipalではなく
+	 // "anonymousUser"という文字列を返す仕様になっている（Spring Security標準の挙動）。
+	 // これをUserPrincipalに直接キャストしようとするとClassCastExceptionになるため、
+	 // principalの型を確認してからキャストするように修正した
+	 @GetMapping("/me")
+	 public ResponseEntity<UserResponseDto> me() {
+	     Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+	     Object principal = authentication.getPrincipal();
+	
+	     // 未ログイン（匿名ユーザー）の場合、401を返す
+	     if (!(principal instanceof UserPrincipal userPrincipal)) {
+	         return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+	     }
+	
+	     User user = userPrincipal.getUser();
+	     return ResponseEntity.ok(new UserResponseDto(user.getId(), user.getEmail()));
+	 }
     
  // POST /api/auth/password-reset/request：パスワード再設定の依頼（ステップ1）
     @PostMapping("/password-reset/request")

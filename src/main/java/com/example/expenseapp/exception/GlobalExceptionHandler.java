@@ -1,12 +1,19 @@
 package com.example.expenseapp.exception;
 
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.AuthenticationException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 /**
@@ -43,25 +50,51 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(Map.of("message", "サーバーエラーが発生しました"));
     }
-    
+
     // 無効なパスワード再設定トークン → 400 Bad Request
     @ExceptionHandler(InvalidResetTokenException.class)
     public ResponseEntity<Map<String, String>> handleInvalidResetToken(InvalidResetTokenException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("message", e.getMessage()));
     }
-    
+
     // リソースが見つからない（他人のものを含む）→ 404 Not Found
     @ExceptionHandler(ResourceNotFoundException.class)
     public ResponseEntity<Map<String, String>> handleResourceNotFound(ResourceNotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(Map.of("message", e.getMessage()));
     }
-    
- // アップロードファイルの形式・サイズ不正 → 400 Bad Request
+
+    // アップロードファイルの形式・サイズ不正 → 400 Bad Request
     @ExceptionHandler(InvalidFileException.class)
     public ResponseEntity<Map<String, String>> handleInvalidFile(InvalidFileException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("message", e.getMessage()));
+    }
+
+    /**
+     * @Validによるバリデーションエラー（例：文字数不足、形式不正、必須項目未入力）発生時の処理。
+     *
+     * 何も指定しないと、親クラス(ResponseEntityExceptionHandler)が
+     * Spring標準のRFC7807形式（title/detail等）をそのまま返してしまい、
+     * 「どの項目が」「どう不正だったか」という具体的な情報がフロントに一切届かない。
+     * そのため、各フィールドの具体的なエラーメッセージを配列にまとめて返すよう上書きする。
+     *
+     * このメソッドは新規登録・経費登録・事業者プロフィール等、
+     * @Validを使う全てのAPIに共通して適用される
+     */
+    @Override
+    protected ResponseEntity<Object> handleMethodArgumentNotValid(
+            MethodArgumentNotValidException ex,
+            HttpHeaders headers,
+            HttpStatusCode status,
+            WebRequest request) {
+
+        List<String> messages = ex.getBindingResult().getFieldErrors().stream()
+                .map(FieldError::getDefaultMessage)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("errors", messages));
     }
 }
