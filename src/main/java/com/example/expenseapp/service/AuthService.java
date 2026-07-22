@@ -1,6 +1,7 @@
 package com.example.expenseapp.service;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import jakarta.transaction.Transactional;
@@ -13,10 +14,12 @@ import com.example.expenseapp.dto.request.PasswordResetConfirmDto;
 import com.example.expenseapp.dto.request.PasswordResetRequestDto;
 import com.example.expenseapp.dto.request.RegisterRequestDto;
 import com.example.expenseapp.dto.response.UserResponseDto;
+import com.example.expenseapp.entity.Category;
 import com.example.expenseapp.entity.PasswordResetToken;
 import com.example.expenseapp.entity.User;
 import com.example.expenseapp.exception.DuplicateEmailException;
 import com.example.expenseapp.exception.InvalidResetTokenException;
+import com.example.expenseapp.repository.CategoryRepository;
 import com.example.expenseapp.repository.PasswordResetTokenRepository;
 import com.example.expenseapp.repository.UserRepository;
 
@@ -35,18 +38,25 @@ public class AuthService {
     private final MailService mailService;
     @Value("${app.frontend-url}")
     private String frontendUrl;
-    
+    // コンストラクタにCategoryRepositoryを追加
+    private final CategoryRepository categoryRepository;
 
     public AuthService(
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             PasswordResetTokenRepository passwordResetTokenRepository,
-            MailService mailService) {
+            MailService mailService,
+            CategoryRepository categoryRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.passwordResetTokenRepository = passwordResetTokenRepository;
         this.mailService = mailService;
+        this.categoryRepository = categoryRepository;
     }
+
+    // 新規ユーザーに配布する初期カテゴリ。要件定義書F-07の5件と一致させている
+    private static final List<String> DEFAULT_CATEGORY_NAMES =
+        List.of("交通費", "食費", "通信費", "消耗品費", "その他");
     /**
      * ユーザー新規登録。
      * メールアドレスの重複チェック→パスワードのハッシュ化→保存、の順で行う
@@ -67,9 +77,14 @@ public class AuthService {
         user.setUpdatedAt(LocalDateTime.now());
         User saved = userRepository.save(user);
 
-        // TODO（Step3・F-14で対応）：
-        // このままだと新規登録者はカテゴリを1件も持たない状態になる。
-        // ここでデフォルトカテゴリ5件をこのユーザー用にコピーする処理を追加する必要がある
+        // 新規登録者にデフォルトカテゴリ5件を自動コピーする（F-14 完了分）
+        for (String name : DEFAULT_CATEGORY_NAMES) {
+            Category category = new Category();
+            category.setUser(saved);
+            category.setName(name);
+            categoryRepository.save(category);
+        }
+
         return new UserResponseDto(saved.getId(), saved.getEmail());
     }
     

@@ -44,9 +44,23 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(Map.of("message", "サーバーエラーが発生しました"));
     }
     
- // 無効なパスワード再設定トークン → 400 Bad Request
+    // 無効なパスワード再設定トークン → 400 Bad Request
     @ExceptionHandler(InvalidResetTokenException.class)
     public ResponseEntity<Map<String, String>> handleInvalidResetToken(InvalidResetTokenException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("message", e.getMessage()));
+    }
+    
+    // リソースが見つからない（他人のものを含む）→ 404 Not Found
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleResourceNotFound(ResourceNotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(Map.of("message", e.getMessage()));
+    }
+    
+ // アップロードファイルの形式・サイズ不正 → 400 Bad Request
+    @ExceptionHandler(InvalidFileException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidFile(InvalidFileException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Map.of("message", e.getMessage()));
     }

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import com.example.expenseapp.dto.response.CategoryResponseDto;
 import com.example.expenseapp.entity.Category;
+import com.example.expenseapp.entity.User;
 import com.example.expenseapp.repository.CategoryRepository;
 
 @Service
@@ -19,10 +20,9 @@ public class CategoryService {
     }
 
     // カテゴリ一覧取得
-    public List<CategoryResponseDto> findAll() {
-        List<Category> categories =
-            categoryRepository.findAllByOrderByDisplayOrderAsc();
-        return categories.stream()
+    // ログイン中ユーザーのカテゴリのみを返す
+    public List<CategoryResponseDto> findAll(User user) {
+        return categoryRepository.findAllByUserIdOrderById(user.getId()).stream()
             .map(this::toResponseDto)
             .collect(Collectors.toList());
     }

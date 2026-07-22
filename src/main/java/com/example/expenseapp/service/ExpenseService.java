@@ -25,6 +25,9 @@ import com.example.expenseapp.dto.response.SummaryResponseDto;
 import com.example.expenseapp.dto.response.YearSummaryResponseDto;
 import com.example.expenseapp.entity.Category;
 import com.example.expenseapp.entity.Expense;
+import com.example.expenseapp.entity.User;
+import com.example.expenseapp.exception.InvalidFileException;
+import com.example.expenseapp.exception.ResourceNotFoundException;
 import com.example.expenseapp.repository.CategoryRepository;
 import com.example.expenseapp.repository.ExpenseRepository;
 
@@ -43,29 +46,32 @@ public class ExpenseService {
     }
 
     // 経費一覧取得（月指定）
-    public List<ExpenseResponseDto> findAll(String month) {
+    // 全てuserを引数として受け取り、絞り込みに使う
+    public List<ExpenseResponseDto> findAll(User user, String month) {
         List<Expense> expenses;
         if (month != null && !month.isEmpty()) {
-            expenses = expenseRepository.findByMonth(month);
+            expenses = expenseRepository.findByUserIdAndMonth(user.getId(), month);
         } else {
-            expenses = expenseRepository.findAll();
+            expenses = expenseRepository.findAllByUserIdOrderByExpenseDateDesc(user.getId());
         }
-        return expenses.stream()
-            .map(this::toResponseDto)
-            .collect(Collectors.toList());
+        return expenses.stream().map(this::toResponseDto).collect(Collectors.toList());
     }
 
     // 経費1件取得
-    public ExpenseResponseDto findById(Integer id) {
-        Expense expense = expenseRepository.findById(id)
-            .orElseThrow(() ->
-                new RuntimeException("経費が見つかりません。ID: " + id));
-        return toResponseDto(expense);
-    }
+    // findByIdAndUserIdを使うことで、「見つからない」と「他人のものだから見せない」を
+    // 同じメッセージ・同じ404で返している。
+    // 存在有無を区別して返すと、他人のIDを推測する手がかりを与えてしまうため
+    public ExpenseResponseDto findById(User user, Integer id) {
+    		Expense expense = expenseRepository.findByIdAndUserId(id, user.getId())
+    				.orElseThrow(() -> new ResourceNotFoundException("経費が見つかりません。ID: " + id));
+	     return toResponseDto(expense);
+	 }
 
     // 経費新規登録
-    public ExpenseResponseDto create(ExpenseRequestDto dto) {
-        Expense expense = toEntity(dto);
+    // userを引数として受け取り、toEntity内のカテゴリ確認・Expense本体の両方に反映する
+    public ExpenseResponseDto create(User user, ExpenseRequestDto dto) {
+        Expense expense = toEntity(user, dto);
+        expense.setUser(user); // どのユーザーの経費かをここで明示的にセットする
         expense.setCreatedAt(LocalDateTime.now());
         expense.setUpdatedAt(LocalDateTime.now());
         Expense saved = expenseRepository.save(expense);
@@ -73,13 +79,16 @@ public class ExpenseService {
     }
 
     // 経費更新
-    public ExpenseResponseDto update(Integer id, ExpenseRequestDto dto) {
-        Expense expense = expenseRepository.findById(id)
+    // 経費・カテゴリの両方について、他人のものを指定されていないかをuser_idで確認する。
+    // カテゴリ側の確認が無いと、他人が非公開で作ったカテゴリのIDを直接指定されるだけで
+    // そのカテゴリを紐付けられてしまうため、必ずセットで絞り込む
+    public ExpenseResponseDto update(User user, Integer id, ExpenseRequestDto dto) {
+        Expense expense = expenseRepository.findByIdAndUserId(id, user.getId())
             .orElseThrow(() ->
-                new RuntimeException("経費が見つかりません。ID: " + id));
-        Category category = categoryRepository.findById(dto.getCategoryId())
+                new ResourceNotFoundException("経費が見つかりません。ID: " + id));
+        Category category = categoryRepository.findByIdAndUserId(dto.getCategoryId(), user.getId())
             .orElseThrow(() ->
-                new RuntimeException("カテゴリが見つかりません。ID: "
+                new ResourceNotFoundException("カテゴリが見つかりません。ID: "
                     + dto.getCategoryId()));
         expense.setTitle(dto.getTitle());
         expense.setAmount(dto.getAmount());
@@ -92,17 +101,19 @@ public class ExpenseService {
     }
 
     // 経費削除（論理削除）
-    public void delete(Integer id) {
-        Expense expense = expenseRepository.findById(id)
+    // 削除対象が「自分の経費か」をuser_idで確認してから削除する
+    public void delete(User user, Integer id) {
+        Expense expense = expenseRepository.findByIdAndUserId(id, user.getId())
             .orElseThrow(() ->
-                new RuntimeException("経費が見つかりません。ID: " + id));
+                new ResourceNotFoundException("経費が見つかりません。ID: " + id));
         expenseRepository.delete(expense);
     }
 
     // 月次集計取得（S-00ダッシュボード用：指定した1年・1月の合計を返す）
-    public SummaryResponseDto getSummary(Integer year, Integer month) {
+    // 集計対象を自分のuser_idの経費のみに絞り込む
+    public SummaryResponseDto getSummary(User user, Integer year, Integer month) {
         List<Object[]> results =
-            expenseRepository.findSummaryByYear(year);
+            expenseRepository.findSummaryByUserIdAndYear(user.getId(), year);
         Map<String, Integer> categoryBreakdown = new HashMap<>();
         int totalAmount = 0;
         for (Object[] row : results) {
@@ -126,15 +137,15 @@ public class ExpenseService {
      * 年間集計取得（S-04集計画面用）。
      * 指定した1年分の経費を「月×カテゴリ」の内訳付きで集計する。
      *
-     * 既存の findSummaryByYear（月・カテゴリごとにSUMしたSQL結果）を再利用し、
+     * 既存の findSummaryByUserIdAndYear（ユーザー・月・カテゴリごとにSUMしたSQL結果）を再利用し、
      * バラバラな行データを「1〜12月、各月ごとのカテゴリ内訳」という
      * 画面が扱いやすい形に組み立て直しているだけで、新しいSQLは発行していない。
      *
      * データが存在しない月も0円の月として結果に含める
      * （そうしないと集計テーブルの行が歯抜けになるため）。
      */
-    public YearSummaryResponseDto getYearlySummary(Integer year) {
-        List<Object[]> results = expenseRepository.findSummaryByYear(year);
+    public YearSummaryResponseDto getYearlySummary(User user, Integer year) {
+        List<Object[]> results = expenseRepository.findSummaryByUserIdAndYear(user.getId(), year);
 
         // 月ごとに「カテゴリ名→金額」のマップを溜めていく（TreeMapで1月→12月の順を保証）
         Map<Integer, Map<String, Integer>> byMonth = new TreeMap<>();
@@ -183,10 +194,11 @@ public class ExpenseService {
     }
 
     // RequestDto → Entity 変換
-    private Expense toEntity(ExpenseRequestDto dto) {
-        Category category = categoryRepository.findById(dto.getCategoryId())
+    // カテゴリを取得する際も、他人のカテゴリIDが指定されていないかをuser_idで確認する
+    private Expense toEntity(User user, ExpenseRequestDto dto) {
+        Category category = categoryRepository.findByIdAndUserId(dto.getCategoryId(), user.getId())
             .orElseThrow(() ->
-                new RuntimeException("カテゴリが見つかりません。ID: "
+                new ResourceNotFoundException("カテゴリが見つかりません。ID: "
                     + dto.getCategoryId()));
         Expense expense = new Expense();
         expense.setTitle(dto.getTitle());
@@ -199,20 +211,21 @@ public class ExpenseService {
     }
 
     // 領収書アップロード
-    public ExpenseResponseDto uploadReceipt(Integer id, MultipartFile file) {
-        Expense expense = expenseRepository.findById(id)
+    // アップロード対象が「自分の経費か」をuser_idで確認してから処理する
+    public ExpenseResponseDto uploadReceipt(User user, Integer id, MultipartFile file) {
+        Expense expense = expenseRepository.findByIdAndUserId(id, user.getId())
             .orElseThrow(() ->
-                new RuntimeException("経費が見つかりません。ID: " + id));
+                new ResourceNotFoundException("経費が見つかりません。ID: " + id));
 
         if (file.isEmpty()) {
-            throw new RuntimeException("ファイルが空です");
+            throw new InvalidFileException("ファイルが空です");
         }
         String contentType = file.getContentType();
         if (!"image/jpeg".equals(contentType) && !"image/png".equals(contentType)) {
-            throw new RuntimeException("JPEGまたはPNG形式のみアップロード可能です");
+            throw new InvalidFileException("JPEGまたはPNG形式のみアップロード可能です");
         }
         if (file.getSize() > 5 * 1024 * 1024) {
-            throw new RuntimeException("ファイルサイズは5MB以内にしてください");
+            throw new InvalidFileException("ファイルサイズは5MB以内にしてください");
         }
 
         try {
