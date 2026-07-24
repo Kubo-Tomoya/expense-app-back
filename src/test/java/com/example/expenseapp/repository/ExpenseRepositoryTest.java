@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -180,5 +181,34 @@ class ExpenseRepositoryTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getTitle()).isEqualTo("userAの7月経費");
+    }
+    
+    /**
+     * No.6：DB直接操作でも不正な値は拒否される
+     *
+     * アプリ側のバリデーション（@Pattern）を経由せず、
+     * Repository経由で直接不正な値を保存しようとした場合、
+     * DBのCHECK制約自体が最後の砦として機能するかを確認する
+     */
+    @Test
+    void expensesのstatusCHECK制約は不正な値を拒否する() {
+        Expense expense = new Expense();
+        expense.setUser(userA);
+        expense.setCategory(categoryA);
+        expense.setTitle("不正status");
+        expense.setAmount(1000);
+        expense.setExpenseDate(LocalDate.of(2026, 7, 1));
+        expense.setStatus("invalid_value"); // CHECK制約(registered/draftのみ)に違反する値
+        expense.setCreatedAt(LocalDateTime.now());
+        expense.setUpdatedAt(LocalDateTime.now());
+
+        // saveAndFlush相当の動作をさせるため、save後に明示的にflushする
+        org.junit.jupiter.api.Assertions.assertThrows(
+            DataIntegrityViolationException.class,
+            () -> {
+                expenseRepository.save(expense);
+                expenseRepository.flush();
+            }
+        );
     }
 }
