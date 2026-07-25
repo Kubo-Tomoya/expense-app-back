@@ -1,7 +1,4 @@
-# テスト実行時のみ有効な設定。
-# spring.sql.init.mode=always を指定しないと、Testcontainers等の
-# 「外部DB相当」の接続では、schema.sqlが自動実行されない
-# （Spring Bootのデフォルトは、H2等の組み込みDBでしか自動実行しない仕様のため）
+# テスト実行時のみ有効な設定
 spring:
   sql:
     init:
@@ -9,3 +6,11 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+
+# AuthServiceが@Valueで参照している値。
+# MailServiceは@MockitoBeanで偽物に差し替えているため、
+# この値が実際にメール送信で使われることはないが、
+# @Valueによる値の埋め込み自体は起動時に必ず行われるため、
+# 何らかのダミー値を用意しておく必要がある
+app:
+  frontend-url: http://localhost:5173
