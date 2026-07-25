@@ -4,11 +4,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-import jakarta.transaction.Transactional;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import com.example.expenseapp.dto.request.PasswordResetConfirmDto;
 import com.example.expenseapp.dto.request.PasswordResetRequestDto;
@@ -25,21 +24,24 @@ import com.example.expenseapp.repository.UserRepository;
 
 /**
  * 認証関連の業務ロジックを担当するService。
- * 現時点ではユーザー登録のみ。ログイン処理自体はSpring Securityの認証機構に任せている
+ * ユーザー登録・パスワード再設定を扱う
  */
 @Service
 @Transactional
 public class AuthService {
-	
-	private final UserRepository userRepository;
+
+    private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    // コンストラクタに repository と mailService を追加する必要がある
     private final PasswordResetTokenRepository passwordResetTokenRepository;
     private final MailService mailService;
+    private final CategoryRepository categoryRepository;
+
     @Value("${app.frontend-url}")
     private String frontendUrl;
-    // コンストラクタにCategoryRepositoryを追加
-    private final CategoryRepository categoryRepository;
+
+    // 新規ユーザーに配布する初期カテゴリ。要件定義書F-07の5件と一致させている
+    private static final List<String> DEFAULT_CATEGORY_NAMES =
+        List.of("交通費", "食費", "通信費", "消耗品費", "その他");
 
     public AuthService(
             UserRepository userRepository,
@@ -54,31 +56,27 @@ public class AuthService {
         this.categoryRepository = categoryRepository;
     }
 
-    // 新規ユーザーに配布する初期カテゴリ。要件定義書F-07の5件と一致させている
-    private static final List<String> DEFAULT_CATEGORY_NAMES =
-        List.of("交通費", "食費", "通信費", "消耗品費", "その他");
     /**
      * ユーザー新規登録。
-     * メールアドレスの重複チェック→パスワードのハッシュ化→保存、の順で行う
+     * メールアドレスの重複チェック→パスワードのハッシュ化→保存、
+     * →デフォルトカテゴリ5件の自動コピー、の順で行う
      */
     public UserResponseDto register(RegisterRequestDto dto) {
-        // DBのUNIQUE制約に任せる方法もあるが、
-        // アプリ側で先にチェックすることで分かりやすいエラーメッセージを返せるようにしている
-	    	// 変更後：汎用的な例外ではなく、専用の例外クラスを投げるようにする
-	    	if (userRepository.existsByEmail(dto.getEmail())) {
-	    	    throw new DuplicateEmailException("このメールアドレスは既に登録されています");
-	    	}
+        if (userRepository.existsByEmail(dto.getEmail())) {
+            throw new DuplicateEmailException("このメールアドレスは既に登録されています");
+        }
 
         User user = new User();
         user.setEmail(dto.getEmail());
-        // 平文パスワードはここで即座にハッシュ化し、以降平文は保持しない
         user.setPasswordHash(passwordEncoder.encode(dto.getPassword()));
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
         User saved = userRepository.save(user);
 
-        // display_orderは「交通費→食費→通信費→消耗品費→その他」の順で
-        // 画面に表示させたいため、リストのインデックス（0,1,2,3,4）をそのまま採用する
+        // 新規登録者にデフォルトカテゴリ5件を自動コピーする。
+        // display_order・created_at・updated_atはいずれもNOT NULL制約があるため、
+        // 全て明示的にセットする必要がある（過去に2回、この列のセット漏れで
+        // NOT NULL制約違反エラーが発生した実績があるため、特に注意すること）
         LocalDateTime now = LocalDateTime.now();
         for (int i = 0; i < DEFAULT_CATEGORY_NAMES.size(); i++) {
             Category category = new Category();
@@ -86,39 +84,34 @@ public class AuthService {
             category.setName(DEFAULT_CATEGORY_NAMES.get(i));
             category.setDisplayOrder(i);
             category.setCreatedAt(now);
+            category.setUpdatedAt(now);
             categoryRepository.save(category);
         }
 
         return new UserResponseDto(saved.getId(), saved.getEmail());
     }
-    
 
     /**
      * パスワード再設定の依頼（ステップ1）。
      *
      * セキュリティ上の重要な設計判断：
-     * 「このメールアドレスは登録されていません」という結果を返すと、
-     * 第三者が「このメールアドレスは経費精算アプリに登録済みだ」と推測できてしまう
-     * （メールアドレス総当たりによる情報漏洩＝メールエニュメレーション攻撃）。
-     * これを防ぐため、メールアドレスが見つかっても見つからなくても、
-     * 呼び出し元には常に同じ「成功扱い」のレスポンスを返す
+     * メールアドレスの存在有無に関わらず、常に同じ「成功扱い」のレスポンスを
+     * 返すため、ユーザーが見つかった場合のみトークン発行・メール送信を行う
      */
     public void requestPasswordReset(PasswordResetRequestDto dto) {
         userRepository.findByEmail(dto.getEmail()).ifPresent(user -> {
-            // 使い捨てトークンを発行する。UUIDは推測困難な文字列を生成できるため採用
             String token = UUID.randomUUID().toString();
 
             PasswordResetToken resetToken = new PasswordResetToken();
             resetToken.setUser(user);
             resetToken.setToken(token);
-            resetToken.setExpiresAt(LocalDateTime.now().plusMinutes(30)); // 30分間のみ有効
+            resetToken.setExpiresAt(LocalDateTime.now().plusMinutes(30));
             resetToken.setCreatedAt(LocalDateTime.now());
             passwordResetTokenRepository.save(resetToken);
 
             String resetUrl = frontendUrl + "/reset-password?token=" + token;
             mailService.sendPasswordResetEmail(user.getEmail(), resetUrl);
         });
-        // ユーザーが見つからなかった場合も、ここで何もせず正常終了する（意図的な仕様）
     }
 
     /**
@@ -141,10 +134,7 @@ public class AuthService {
         user.setUpdatedAt(LocalDateTime.now());
         userRepository.save(user);
 
-        // 使用済みとして記録し、同じトークンの再利用を防ぐ
         resetToken.setUsedAt(LocalDateTime.now());
         passwordResetTokenRepository.save(resetToken);
     }
-
-
 }
