@@ -272,4 +272,240 @@ class ExpenseServiceTest {
         assertThat(result.getTotalAmount()).isEqualTo(15000);
         assertThat(result.getMonthly()).hasSize(12);
     }
+    
+ // ===== F-01：経費登録（create） =====
+
+    @Test
+    void createは正しい入力で経費が登録される() {
+        ExpenseRequestDto dto = new ExpenseRequestDto();
+        dto.setTitle("新幹線代");
+        dto.setAmount(12500);
+        dto.setCategoryId(10);
+        dto.setExpenseDate(LocalDate.of(2026, 7, 10));
+        dto.setStatus("registered");
+
+        when(categoryRepository.findByIdAndUserId(10, 1)).thenReturn(Optional.of(categoryA));
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(invocation -> {
+            Expense expense = invocation.getArgument(0);
+            expense.setId(200);
+            return expense;
+        });
+
+        ExpenseResponseDto result = expenseService.create(userA, dto);
+
+        assertThat(result.getId()).isEqualTo(200);
+        assertThat(result.getTitle()).isEqualTo("新幹線代");
+        assertThat(result.getAmount()).isEqualTo(12500);
+    }
+
+    @Test
+    void createは他ユーザーのカテゴリIDを指定すると登録できない() {
+        ExpenseRequestDto dto = new ExpenseRequestDto();
+        dto.setTitle("不正アクセステスト");
+        dto.setAmount(1000);
+        dto.setCategoryId(999); // 他ユーザーのカテゴリID
+        dto.setExpenseDate(LocalDate.of(2026, 7, 10));
+        dto.setStatus("registered");
+
+        when(categoryRepository.findByIdAndUserId(999, 1)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> expenseService.create(userA, dto))
+            .isInstanceOf(ResourceNotFoundException.class)
+            .hasMessageContaining("カテゴリが見つかりません");
+
+        // カテゴリが見つからない時点で処理が中断され、save()が呼ばれないことを確認
+        verify(expenseRepository, never()).save(any());
+    }
+
+    @Test
+    void createは金額1円ちょうどで登録できる() {
+        ExpenseRequestDto dto = new ExpenseRequestDto();
+        dto.setTitle("最小金額テスト");
+        dto.setAmount(1); // 境界値：1円ちょうど
+        dto.setCategoryId(10);
+        dto.setExpenseDate(LocalDate.of(2026, 7, 10));
+        dto.setStatus("registered");
+
+        when(categoryRepository.findByIdAndUserId(10, 1)).thenReturn(Optional.of(categoryA));
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ExpenseResponseDto result = expenseService.create(userA, dto);
+
+        assertThat(result.getAmount()).isEqualTo(1);
+    }
+
+    // ===== F-02：経費一覧表示（findAll） =====
+
+    @Test
+    void findAllは月指定時にその月の経費のみ取得できる() {
+        Expense expense = new Expense();
+        expense.setId(300);
+        expense.setUser(userA);
+        expense.setCategory(categoryA);
+        expense.setTitle("7月の経費");
+        expense.setAmount(5000);
+        expense.setExpenseDate(LocalDate.of(2026, 7, 15));
+        expense.setStatus("registered");
+
+        when(expenseRepository.findByUserIdAndMonth(1, "2026-07")).thenReturn(List.of(expense));
+
+        List<ExpenseResponseDto> result = expenseService.findAll(userA, "2026-07");
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getTitle()).isEqualTo("7月の経費");
+        // 月指定時はfindByUserIdAndMonthが呼ばれ、findAllByUserIdOrderByExpenseDateDescは呼ばれないことを確認
+        verify(expenseRepository, never()).findAllByUserIdOrderByExpenseDateDesc(anyInt());
+    }
+
+    @Test
+    void findAllは月未指定時は全件取得できる() {
+        Expense expense1 = new Expense();
+        expense1.setId(301);
+        expense1.setUser(userA);
+        expense1.setCategory(categoryA);
+        expense1.setTitle("経費1");
+        expense1.setAmount(1000);
+        expense1.setExpenseDate(LocalDate.of(2026, 5, 1));
+        expense1.setStatus("registered");
+
+        Expense expense2 = new Expense();
+        expense2.setId(302);
+        expense2.setUser(userA);
+        expense2.setCategory(categoryA);
+        expense2.setTitle("経費2");
+        expense2.setAmount(2000);
+        expense2.setExpenseDate(LocalDate.of(2026, 7, 1));
+        expense2.setStatus("registered");
+
+        when(expenseRepository.findAllByUserIdOrderByExpenseDateDesc(1)).thenReturn(List.of(expense2, expense1));
+
+        List<ExpenseResponseDto> result = expenseService.findAll(userA, null);
+
+        assertThat(result).hasSize(2);
+        // 月指定なしの場合、findByUserIdAndMonthは呼ばれないことを確認
+        verify(expenseRepository, never()).findByUserIdAndMonth(anyInt(), any());
+    }
+
+    @Test
+    void findAllは他ユーザーの経費が含まれない() {
+        // Repositoryが「userA分のみ」を返す状況をMock化することで、
+        // Serviceがuser.getId()を正しく渡していることを確認する
+        Expense expense = new Expense();
+        expense.setId(303);
+        expense.setUser(userA);
+        expense.setCategory(categoryA);
+        expense.setTitle("userAの経費");
+        expense.setAmount(1000);
+        expense.setExpenseDate(LocalDate.of(2026, 7, 1));
+        expense.setStatus("registered");
+
+        when(expenseRepository.findAllByUserIdOrderByExpenseDateDesc(1)).thenReturn(List.of(expense));
+
+        List<ExpenseResponseDto> result = expenseService.findAll(userA, null);
+
+        assertThat(result).hasSize(1);
+        // userAのID(1)で絞り込みが行われたことを確認（他ユーザーIDでは呼ばれていない）
+        verify(expenseRepository).findAllByUserIdOrderByExpenseDateDesc(1);
+    }
+
+    // ===== F-03：経費編集（update・正常系のみ、異常系は既存の重複テストを参照） =====
+
+    @Test
+    void updateは正しい入力で経費が更新される() {
+        Expense expense = new Expense();
+        expense.setId(100);
+        expense.setUser(userA);
+        expense.setCategory(categoryA);
+        expense.setTitle("元のタイトル");
+        expense.setAmount(5000);
+        expense.setExpenseDate(LocalDate.of(2026, 7, 1));
+        expense.setStatus("registered");
+
+        ExpenseRequestDto dto = new ExpenseRequestDto();
+        dto.setTitle("更新後タイトル");
+        dto.setAmount(8000);
+        dto.setCategoryId(10);
+        dto.setExpenseDate(LocalDate.of(2026, 7, 15));
+        dto.setStatus("registered");
+
+        when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(expense));
+        when(categoryRepository.findByIdAndUserId(10, 1)).thenReturn(Optional.of(categoryA));
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ExpenseResponseDto result = expenseService.update(userA, 100, dto);
+
+        assertThat(result.getTitle()).isEqualTo("更新後タイトル");
+        assertThat(result.getAmount()).isEqualTo(8000);
+    }
+
+    // ===== F-05：領収書アップロード（uploadReceipt） =====
+    @Test
+    void uploadReceiptはJPEGファイルが正常にアップロードできる() {
+        Expense expense = new Expense();
+        expense.setId(100);
+        expense.setUser(userA);
+        expense.setCategory(categoryA); // toResponseDto内でcategory.getName()が呼ばれるため必須
+
+        when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(expense));
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        org.springframework.mock.web.MockMultipartFile file = new org.springframework.mock.web.MockMultipartFile(
+            "file", "receipt.jpg", "image/jpeg", "dummy-image-content".getBytes());
+
+        ExpenseResponseDto result = expenseService.uploadReceipt(userA, 100, file);
+
+        assertThat(result.getReceiptImagePath()).isNotNull();
+        assertThat(result.getReceiptImagePath()).contains("receipt_100_");
+    }
+
+    @Test
+    void uploadReceiptは不正な形式のファイルは拒否される() {
+        Expense expense = new Expense();
+        expense.setId(100);
+        expense.setUser(userA);
+
+        when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(expense));
+
+        org.springframework.mock.web.MockMultipartFile file = new org.springframework.mock.web.MockMultipartFile(
+            "file", "document.pdf", "application/pdf", "dummy-pdf-content".getBytes());
+
+        assertThatThrownBy(() -> expenseService.uploadReceipt(userA, 100, file))
+            .isInstanceOf(com.example.expenseapp.exception.InvalidFileException.class)
+            .hasMessageContaining("JPEGまたはPNG形式");
+
+        verify(expenseRepository, never()).save(any());
+    }
+
+    @Test
+    void uploadReceiptは5MB超のファイルは拒否される() {
+        Expense expense = new Expense();
+        expense.setId(100);
+        expense.setUser(userA);
+
+        when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(expense));
+
+        // 5MB(5 * 1024 * 1024 byte)を超えるダミーデータを作成する
+        byte[] largeContent = new byte[6 * 1024 * 1024];
+        org.springframework.mock.web.MockMultipartFile file = new org.springframework.mock.web.MockMultipartFile(
+            "file", "large.jpg", "image/jpeg", largeContent);
+
+        assertThatThrownBy(() -> expenseService.uploadReceipt(userA, 100, file))
+            .isInstanceOf(com.example.expenseapp.exception.InvalidFileException.class)
+            .hasMessageContaining("5MB以内");
+
+        verify(expenseRepository, never()).save(any());
+    }
+
+    @Test
+    void uploadReceiptは他人の経費IDには紐付けできない() {
+        when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.empty());
+
+        org.springframework.mock.web.MockMultipartFile file = new org.springframework.mock.web.MockMultipartFile(
+            "file", "receipt.jpg", "image/jpeg", "dummy-image-content".getBytes());
+
+        assertThatThrownBy(() -> expenseService.uploadReceipt(userA, 100, file))
+            .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(expenseRepository, never()).save(any());
+    }
 }
