@@ -508,4 +508,21 @@ class ExpenseServiceTest {
 
         verify(expenseRepository, never()).save(any());
     }
+    
+ // ===== F-08：月次集計表示（境界値） =====
+
+    @Test
+    void getSummaryは経費データが0件の月では合計0円で返す() {
+        // 確定分・下書き分ともに空のリストが返る状況をMock化する
+        when(expenseRepository.findSummaryByUserIdAndYearAndStatus(1, 2026, "registered"))
+            .thenReturn(new ArrayList<>());
+        when(expenseRepository.findSummaryByUserIdAndYearAndStatus(1, 2026, "draft"))
+            .thenReturn(new ArrayList<>());
+
+        SummaryResponseDto result = expenseService.getSummary(userA, 2026, 12);
+
+        assertThat(result.getTotalAmount()).isEqualTo(0);
+        assertThat(result.getCategoryBreakdown()).isEmpty();
+        assertThat(result.getDraftAmount()).isEqualTo(0);
+    }
 }
