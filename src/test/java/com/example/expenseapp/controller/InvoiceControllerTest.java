@@ -1,5 +1,6 @@
 package com.example.expenseapp.controller;
 
+import static org.assertj.core.api.Assertions.*;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -137,6 +138,74 @@ class InvoiceControllerTest {
     @Test
     void 未ログイン時は認証エラーになる() throws Exception {
         mockMvc.perform(get("/api/invoices"))
+            .andExpect(status().isUnauthorized());
+    }
+
+    // --- F-18 請求書PDF出力 -------------------------------------------------
+
+    // F-18 No.13
+    @Test
+    void getPdfは発行済みならPDFを返す() throws Exception {
+        MockHttpSession session = registerAndLogin();
+        Integer clientId = createClient(session);
+
+        MvcResult createResult = mockMvc.perform(post("/api/invoices")
+                .with(csrf())
+                .session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(invoiceBody(clientId)))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+        Integer invoiceId = objectMapper
+            .readTree(createResult.getResponse().getContentAsString())
+            .get("id").asInt();
+
+        mockMvc.perform(put("/api/invoices/" + invoiceId + "/issue")
+                .with(csrf())
+                .session(session))
+            .andExpect(status().isOk());
+
+        MvcResult pdfResult = mockMvc.perform(get("/api/invoices/" + invoiceId + "/pdf")
+                .session(session))
+            .andExpect(status().isOk())
+            .andExpect(header().string("Content-Type", "application/pdf"))
+            .andExpect(header().string("Content-Disposition",
+                "inline; filename=\"INV-2026-0001.pdf\""))
+            .andReturn();
+
+        byte[] pdf = pdfResult.getResponse().getContentAsByteArray();
+        assertThat(pdf).isNotEmpty();
+        assertThat(new String(pdf, 0, 4)).isEqualTo("%PDF");
+    }
+
+    // F-18 追加：下書きはPDF出力できない（400）
+    @Test
+    void getPdfは下書きの場合400を返す() throws Exception {
+        MockHttpSession session = registerAndLogin();
+        Integer clientId = createClient(session);
+
+        MvcResult createResult = mockMvc.perform(post("/api/invoices")
+                .with(csrf())
+                .session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(invoiceBody(clientId)))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+        Integer invoiceId = objectMapper
+            .readTree(createResult.getResponse().getContentAsString())
+            .get("id").asInt();
+
+        mockMvc.perform(get("/api/invoices/" + invoiceId + "/pdf")
+                .session(session))
+            .andExpect(status().isBadRequest());
+    }
+
+    // F-18 No.14
+    @Test
+    void getPdfは未ログイン時に認証エラーになる() throws Exception {
+        mockMvc.perform(get("/api/invoices/1/pdf"))
             .andExpect(status().isUnauthorized());
     }
 }
