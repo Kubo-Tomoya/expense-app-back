@@ -99,6 +99,27 @@
 		    <artifactId>spring-security-test</artifactId>
 		    <scope>test</scope>
 		</dependency>
+
+		<!-- F-18（請求書PDF出力）：帳票をHTMLテンプレートとして組み立てるためのテンプレートエンジン。
+		     PDF側のレイアウトをHTML/CSSで表現し、税率別内訳のような表組みを保守しやすくする -->
+		<dependency>
+		    <groupId>org.springframework.boot</groupId>
+		    <artifactId>spring-boot-starter-thymeleaf</artifactId>
+		</dependency>
+		<!-- F-18：HTMLからPDFを生成する。Apache 2.0ライセンスのため、
+		     有料プラン提供を見据えた本アプリでもライセンス費用が発生しない
+		     （iTextはAGPLのため商用ライセンスが必要になり採用しない） -->
+		<dependency>
+		    <groupId>io.github.openhtmltopdf</groupId>
+		    <artifactId>openhtmltopdf-core</artifactId>
+		    <version>1.1.31</version>
+		</dependency>
+		<!-- PDF出力の実体。PDFBoxを内部で使用しており、テスト側のテキスト抽出にも同じPDFBoxを利用する -->
+		<dependency>
+		    <groupId>io.github.openhtmltopdf</groupId>
+		    <artifactId>openhtmltopdf-pdfbox</artifactId>
+		    <version>1.1.31</version>
+		</dependency>
 	</dependencies>
 
 	<build>
