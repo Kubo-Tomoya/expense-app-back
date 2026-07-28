@@ -208,4 +208,106 @@ class InvoiceControllerTest {
         mockMvc.perform(get("/api/invoices/1/pdf"))
             .andExpect(status().isUnauthorized());
     }
+
+    // --- F-19 入金管理 ------------------------------------------------------
+
+    /** 発行済みの請求書を1件作り、そのIDを返す */
+    private Integer createIssuedInvoice(MockHttpSession session) throws Exception {
+        Integer clientId = createClient(session);
+
+        MvcResult createResult = mockMvc.perform(post("/api/invoices")
+                .with(csrf())
+                .session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(invoiceBody(clientId)))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+        Integer invoiceId = objectMapper
+            .readTree(createResult.getResponse().getContentAsString())
+            .get("id").asInt();
+
+        mockMvc.perform(put("/api/invoices/" + invoiceId + "/issue")
+                .with(csrf())
+                .session(session))
+            .andExpect(status().isOk());
+
+        return invoiceId;
+    }
+
+    // F-19 No.11
+    @Test
+    void updatePaymentStatusは入金記録成功時に200と入金日を返す() throws Exception {
+        MockHttpSession session = registerAndLogin();
+        Integer invoiceId = createIssuedInvoice(session);
+
+        String body = "{\"paymentStatus\":\"paid\",\"paidAt\":\"2026-07-29\"}";
+
+        mockMvc.perform(put("/api/invoices/" + invoiceId + "/payment-status")
+                .with(csrf())
+                .session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.paymentStatus").value("paid"))
+            .andExpect(jsonPath("$.paidAt").exists())
+            // 入金記録は請求書のステータスに影響しない
+            .andExpect(jsonPath("$.status").value("issued"));
+    }
+
+    // F-19 追加：解除で未入金へ戻せる
+    @Test
+    void updatePaymentStatusは解除で未入金に戻せる() throws Exception {
+        MockHttpSession session = registerAndLogin();
+        Integer invoiceId = createIssuedInvoice(session);
+
+        mockMvc.perform(put("/api/invoices/" + invoiceId + "/payment-status")
+                .with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"paymentStatus\":\"paid\",\"paidAt\":\"2026-07-29\"}"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(put("/api/invoices/" + invoiceId + "/payment-status")
+                .with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"paymentStatus\":\"unpaid\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.paymentStatus").value("unpaid"))
+            .andExpect(jsonPath("$.paidAt").doesNotExist());
+    }
+
+    // F-19 追加：下書きは入金状況を更新できない
+    @Test
+    void updatePaymentStatusは下書きの場合400を返す() throws Exception {
+        MockHttpSession session = registerAndLogin();
+        Integer clientId = createClient(session);
+
+        MvcResult createResult = mockMvc.perform(post("/api/invoices")
+                .with(csrf())
+                .session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(invoiceBody(clientId)))
+            .andExpect(status().isCreated())
+            .andReturn();
+
+        Integer invoiceId = objectMapper
+            .readTree(createResult.getResponse().getContentAsString())
+            .get("id").asInt();
+
+        mockMvc.perform(put("/api/invoices/" + invoiceId + "/payment-status")
+                .with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"paymentStatus\":\"paid\",\"paidAt\":\"2026-07-29\"}"))
+            .andExpect(status().isBadRequest());
+    }
+
+    // F-19 No.12
+    @Test
+    void updatePaymentStatusは未ログイン時に認証エラーになる() throws Exception {
+        mockMvc.perform(put("/api/invoices/1/payment-status")
+                .with(csrf())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"paymentStatus\":\"paid\",\"paidAt\":\"2026-07-29\"}"))
+            .andExpect(status().isUnauthorized());
+    }
 }

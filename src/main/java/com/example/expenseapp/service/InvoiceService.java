@@ -187,6 +187,36 @@ public class InvoiceService {
     }
 
     /**
+     * 入金状況の更新（F-19）。発行済みのみ操作できる。
+     *
+     * 下書きは発行前で入金の概念がなく、取消済みは回収対象外のため拒否する
+     * （取消済みに入金を記録できると、F-20の未回収金額の集計と矛盾する）。
+     *
+     * 未入金への解除は冪等に扱う。既に未入金のものへ同じ指定が来ても、
+     * 求めている結果は同じであるためエラーにしない
+     */
+    public InvoiceResponseDto updatePaymentStatus(User user, Integer id, String paymentStatus, LocalDate paidAt) {
+        Invoice invoice = findOwned(user, id);
+        if (!invoice.isIssued()) {
+            throw new InvalidInvoiceStateException(
+                "発行済みの請求書のみ入金状況を更新できます");
+        }
+
+        if (Invoice.PAYMENT_STATUS_PAID.equals(paymentStatus)) {
+            invoice.setPaymentStatus(Invoice.PAYMENT_STATUS_PAID);
+            // paid_atはTIMESTAMP型のため、入金日の0時として保持する
+            invoice.setPaidAt(paidAt.atStartOfDay());
+        } else {
+            invoice.setPaymentStatus(Invoice.PAYMENT_STATUS_UNPAID);
+            invoice.setPaidAt(null);
+        }
+        invoice.setUpdatedAt(LocalDateTime.now());
+
+        Invoice saved = invoiceRepository.save(invoice);
+        return toResponseDto(saved, true);
+    }
+
+    /**
      * 削除（下書きのみ・物理削除）。明細はON DELETE CASCADE／orphanRemovalで併せて削除される。
      * 発行済み・取消済みは監査上レコードを残す必要があるため削除できない
      */
