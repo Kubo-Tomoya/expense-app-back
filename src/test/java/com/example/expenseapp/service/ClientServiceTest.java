@@ -137,4 +137,48 @@ class ClientServiceTest {
 
         verify(clientRepository, org.mockito.Mockito.never()).save(any());
     }
+
+    // F-16 No.15
+    @Test
+    void activateはis_activeがtrueに戻る() {
+        Client existing = new Client();
+        existing.setId(100);
+        existing.setUser(userA);
+        existing.setIsActive(false);
+
+        when(clientRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(existing));
+        when(clientRepository.save(any(Client.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ClientResponseDto result = clientService.activate(userA, 100);
+
+        assertThat(result.getIsActive()).isTrue();
+        verify(clientRepository).save(any(Client.class));
+    }
+
+    // F-16 No.16
+    @Test
+    void activateは他人の取引先は再有効化できない() {
+        when(clientRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> clientService.activate(userA, 100))
+            .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(clientRepository, org.mockito.Mockito.never()).save(any());
+    }
+
+    // 追加：既に有効な取引先に対しても例外にせず、有効のまま返す（冪等）
+    @Test
+    void activateは既に有効な取引先でも有効のまま返す() {
+        Client existing = new Client();
+        existing.setId(100);
+        existing.setUser(userA);
+        existing.setIsActive(true);
+
+        when(clientRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(existing));
+        when(clientRepository.save(any(Client.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ClientResponseDto result = clientService.activate(userA, 100);
+
+        assertThat(result.getIsActive()).isTrue();
+    }
 }

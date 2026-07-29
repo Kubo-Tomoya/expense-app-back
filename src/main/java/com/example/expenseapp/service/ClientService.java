@@ -76,6 +76,22 @@ public class ClientService {
         return toResponseDto(saved);
     }
 
+    /**
+     * 再有効化（無効化の取り消し）。deactivate()と対になる、誤操作時の復帰手段。
+     * 無効化はレコードを残す方式のため、is_activeをtrueに戻すだけで元の状態に復帰できる。
+     *
+     * 既に有効な取引先に対して呼ばれても例外にはせず、有効のまま返す（冪等に扱う）。
+     * 同じ結果を要求しているだけであり、F-19の入金解除と同じ方針
+     */
+    public ClientResponseDto activate(User user, Integer id) {
+        Client client = clientRepository.findByIdAndUserId(id, user.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("取引先が見つかりません。ID: " + id));
+        client.setIsActive(true);
+        client.setUpdatedAt(LocalDateTime.now());
+        Client saved = clientRepository.save(client);
+        return toResponseDto(saved);
+    }
+
     private void applyDto(Client client, ClientRequestDto dto) {
         client.setName(dto.getName());
         client.setHonorific(dto.getHonorific());
