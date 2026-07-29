@@ -30,5 +30,10 @@ spring:
 app:
    # パスワード再設定メール内のリンク生成に使用するフロントエンドのURL
    frontend-url: http://localhost:5173
+   pdf:
+     # F-18（請求書PDF出力）で埋め込む日本語フォント（クラスパス上の位置）。
+     # PDFはフォントを埋め込まないと日本語が表示できないため必須。
+     # IPAexフォント（IPAフォントライセンス）は再配布・埋め込みが認められている
+     font-path: fonts/ipaexg.ttf
 server:
   port: 8080

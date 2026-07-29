@@ -16,10 +16,14 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+
 import com.example.expenseapp.dto.request.InvoiceCancelRequestDto;
 import com.example.expenseapp.dto.request.InvoiceRequestDto;
 import com.example.expenseapp.dto.response.InvoiceResponseDto;
 import com.example.expenseapp.security.UserPrincipal;
+import com.example.expenseapp.service.InvoicePdfService;
 import com.example.expenseapp.service.InvoiceService;
 
 /**
@@ -35,9 +39,11 @@ import com.example.expenseapp.service.InvoiceService;
 public class InvoiceController {
 
     private final InvoiceService invoiceService;
+    private final InvoicePdfService invoicePdfService;
 
-    public InvoiceController(InvoiceService invoiceService) {
+    public InvoiceController(InvoiceService invoiceService, InvoicePdfService invoicePdfService) {
         this.invoiceService = invoiceService;
+        this.invoicePdfService = invoicePdfService;
     }
 
     // GET /api/invoices
@@ -94,6 +100,24 @@ public class InvoiceController {
             @PathVariable Integer id,
             @Valid @RequestBody InvoiceCancelRequestDto dto) {
         return ResponseEntity.ok(invoiceService.cancel(principal.getUser(), id, dto.getReason()));
+    }
+
+    // GET /api/invoices/{id}/pdf
+    // 請求書PDFの出力（F-18）。発行済み・取消済みのみ。下書きは400
+    //
+    // inlineで返すのは、フロントがblobとして受け取り別タブでプレビュー表示する運用のため。
+    // ファイル名は請求書番号のみとし、日本語を含めない（ブラウザ・OSによる文字化けを避ける）
+    @GetMapping("/{id}/pdf")
+    public ResponseEntity<byte[]> getPdf(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Integer id) {
+        InvoicePdfService.PdfDocument pdf = invoicePdfService.generate(principal.getUser(), id);
+
+        return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_PDF)
+            .header(HttpHeaders.CONTENT_DISPOSITION,
+                "inline; filename=\"" + pdf.getFileName() + "\"")
+            .body(pdf.getContent());
     }
 
     // DELETE /api/invoices/{id}

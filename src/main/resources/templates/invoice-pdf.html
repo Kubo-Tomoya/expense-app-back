@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8"/>
+    <title th:text="'請求書 ' + ${invoice.invoiceNumber}">請求書</title>
+    <style>
+        /*
+         * F-18 請求書PDFのレイアウト。
+         * openhtmltopdfはflexboxを解釈しないため、配置はtableで組む。
+         * フォント名はInvoicePdfServiceで登録する論理名（IPAexGothic）と一致させる
+         */
+        @page {
+            size: A4;
+            margin: 20mm;
+        }
+        body {
+            font-family: 'IPAexGothic', sans-serif;
+            font-size: 10pt;
+            color: #222;
+        }
+        .title {
+            font-size: 22pt;
+            font-weight: bold;
+            text-align: center;
+            letter-spacing: 8pt;
+            margin: 0 0 2mm;
+        }
+        .subtitle {
+            font-size: 9pt;
+            text-align: center;
+            color: #555;
+            margin: 0 0 8mm;
+        }
+        table { width: 100%; border-collapse: collapse; }
+        .meta td { vertical-align: top; padding: 0; }
+        .meta-right { text-align: right; font-size: 9pt; }
+        .client-name {
+            font-size: 13pt;
+            font-weight: bold;
+            border-bottom: 1px solid #222;
+            padding-bottom: 1mm;
+        }
+        .client-address { font-size: 9pt; color: #555; padding-top: 1mm; }
+        .issuer { font-size: 9pt; line-height: 1.6; }
+        .total-box {
+            margin: 8mm 0;
+            border: 1.5pt solid #222;
+            padding: 3mm 4mm;
+        }
+        .total-label { font-size: 10pt; }
+        .total-value { font-size: 18pt; font-weight: bold; text-align: right; }
+        /*
+         * 明細が1ページに収まらない場合、改ページしてヘッダー行を繰り返す。
+         * -fs-table-paginateはopenhtmltopdf独自の指定で、これが無いと
+         * 2ページ目以降でヘッダーが出ず罫線も崩れる
+         */
+        .items {
+            margin-top: 4mm;
+            -fs-table-paginate: paginate;
+        }
+        .items thead { display: table-header-group; }
+        .items th {
+            background-color: #eeeeee;
+            border: 0.5pt solid #999;
+            padding: 2mm 2mm;
+            font-size: 9pt;
+        }
+        .items td {
+            border: 0.5pt solid #999;
+            padding: 2mm 2mm;
+            font-size: 9pt;
+        }
+        .num { text-align: right; }
+        .center { text-align: center; }
+        .summary { margin-top: 4mm; }
+        .summary td { padding: 1.5mm 2mm; font-size: 9pt; border-bottom: 0.5pt solid #ccc; }
+        .summary .grand td { border-top: 1pt solid #222; border-bottom: none; font-weight: bold; font-size: 11pt; }
+        .footnote { margin-top: 6mm; font-size: 8.5pt; color: #555; }
+        /*
+         * ページ番号。position: fixed の要素は全ページに描画されるため、
+         * 共通フッターとして使える。counter(page)/counter(pages)で「1 / 2」を出力する
+         */
+        .page-number {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 8pt;
+            color: #777;
+        }
+        .page-number::after {
+            content: counter(page) " / " counter(pages);
+        }
+        .watermark {
+            position: fixed;
+            top: 110mm;
+            left: 40mm;
+            font-size: 60pt;
+            font-weight: bold;
+            color: #d0d0d0;
+            transform: rotate(-25deg);
+        }
+    </style>
+</head>
+<body>
+
+<!-- 取消済みの場合のみ、現行の請求書ではないことを示す透かしを重ねる -->
+<div class="watermark" th:if="${isCanceled}">取消済</div>
+
+<p class="title">請求書</p>
+<!-- 登録番号が設定されている場合のみ「適格請求書」と明示する（免税事業者は登録番号を持たない） -->
+<p class="subtitle" th:if="${isQualified}">適格請求書</p>
+
+<table class="meta">
+    <tr>
+        <td width="55%">
+            <div class="client-name" th:text="${invoice.clientName} + ' ' + ${invoice.clientHonorific}">取引先名 御中</div>
+            <div class="client-address" th:if="${invoice.clientAddress}" th:text="${invoice.clientAddress}">住所</div>
+        </td>
+        <td width="45%" class="meta-right">
+            <div>請求書番号：<span th:text="${invoice.invoiceNumber}">INV-2026-0001</span></div>
+            <div>発行日：<span th:text="${issueDate}">2026年7月28日</span></div>
+            <div>支払期日：<span th:text="${dueDate}">2026年8月31日</span></div>
+        </td>
+    </tr>
+</table>
+
+<table class="meta" style="margin-top: 6mm;">
+    <tr>
+        <!-- openhtmltopdfはXMLとして解釈するため、&nbsp;ではなく数値文字参照を使う -->
+        <td width="55%">&#160;</td>
+        <td width="45%" class="issuer">
+            <div th:if="${invoice.issuerBusinessName}" th:text="${invoice.issuerBusinessName}">屋号</div>
+            <div th:if="${invoice.issuerOwnerName}" th:text="${invoice.issuerOwnerName}">氏名</div>
+            <div th:if="${invoice.issuerAddress}" th:text="${invoice.issuerAddress}">住所</div>
+            <div th:if="${isQualified}">
+                登録番号：<span th:text="${invoice.issuerInvoiceRegistrationNumber}">T1234567890123</span>
+            </div>
+        </td>
+    </tr>
+</table>
+
+<div class="total-box">
+    <table>
+        <tr>
+            <td class="total-label" width="40%">ご請求金額（税込）</td>
+            <td class="total-value" th:text="'¥' + ${#numbers.formatInteger(invoice.totalAmount, 1, 'COMMA')}">¥0</td>
+        </tr>
+    </table>
+</div>
+
+<table class="items">
+    <thead>
+        <tr>
+            <th width="42%">品目</th>
+            <th width="10%">数量</th>
+            <th width="16%">税抜単価</th>
+            <th width="12%">税率</th>
+            <th width="20%">金額</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr th:each="item : ${items}">
+            <td>
+                <span th:text="${item.description}">品目</span>
+                <!-- 適格請求書では軽減税率対象であることが分かる記載が必須のため※を付す -->
+                <span th:if="${item.taxCategory == 'taxable_8'}">※</span>
+            </td>
+            <td class="num" th:text="${item.quantityLabel}">1</td>
+            <td class="num" th:text="'¥' + ${#numbers.formatInteger(item.unitPrice, 1, 'COMMA')}">¥0</td>
+            <td class="center" th:text="${item.taxRateLabel}">10%</td>
+            <td class="num" th:text="'¥' + ${#numbers.formatInteger(item.amount, 1, 'COMMA')}">¥0</td>
+        </tr>
+    </tbody>
+</table>
+
+<table class="summary">
+    <!-- 税率ごとに区分した対価の額・消費税額は適格請求書の必須記載事項 -->
+    <tr th:each="summary : ${taxSummaries}">
+        <td width="60%" th:text="${summary.label} + ' 対象'">課税10% 対象</td>
+        <td class="num" width="20%" th:text="'¥' + ${#numbers.formatInteger(summary.subtotalAmount, 1, 'COMMA')}">¥0</td>
+        <td class="num" width="20%" th:text="'消費税 ¥' + ${#numbers.formatInteger(summary.taxAmount, 1, 'COMMA')}">消費税 ¥0</td>
+    </tr>
+    <tr>
+        <td>小計</td>
+        <td class="num" colspan="2" th:text="'¥' + ${#numbers.formatInteger(invoice.subtotalAmount, 1, 'COMMA')}">¥0</td>
+    </tr>
+    <tr>
+        <td>消費税</td>
+        <td class="num" colspan="2" th:text="'¥' + ${#numbers.formatInteger(invoice.taxAmount, 1, 'COMMA')}">¥0</td>
+    </tr>
+    <tr class="grand">
+        <td>合計金額</td>
+        <td class="num" colspan="2" th:text="'¥' + ${#numbers.formatInteger(invoice.totalAmount, 1, 'COMMA')}">¥0</td>
+    </tr>
+</table>
+
+<!-- 軽減税率の明細が無い場合は脚注を出さない -->
+<p class="footnote" th:if="${hasReducedRate}">※は軽減税率対象</p>
+
+<div class="page-number"></div>
+
+</body>
+</html>
