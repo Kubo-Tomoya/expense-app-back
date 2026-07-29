@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import org.springframework.http.HttpHeaders;
@@ -23,6 +24,7 @@ import com.example.expenseapp.dto.request.InvoiceCancelRequestDto;
 import com.example.expenseapp.dto.request.InvoicePaymentRequestDto;
 import com.example.expenseapp.dto.request.InvoiceRequestDto;
 import com.example.expenseapp.dto.response.InvoiceResponseDto;
+import com.example.expenseapp.dto.response.InvoiceSummaryResponseDto;
 import com.example.expenseapp.security.UserPrincipal;
 import com.example.expenseapp.service.InvoicePdfService;
 import com.example.expenseapp.service.InvoiceService;
@@ -53,6 +55,18 @@ public class InvoiceController {
     public ResponseEntity<List<InvoiceResponseDto>> getAll(
             @AuthenticationPrincipal UserPrincipal principal) {
         return ResponseEntity.ok(invoiceService.findAll(principal.getUser()));
+    }
+
+    // GET /api/invoices/summary?year=&month=
+    // 収支ダッシュボード用の集計（F-20）。既存のGET /api/expenses/summaryと同じ形式のパラメータに揃える。
+    //
+    // {id}を取るパスより先に定義しているのは、"summary"がIDとして解釈されないようにするため
+    @GetMapping("/summary")
+    public ResponseEntity<InvoiceSummaryResponseDto> getSummary(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestParam Integer year,
+            @RequestParam Integer month) {
+        return ResponseEntity.ok(invoiceService.getSummary(principal.getUser(), year, month));
     }
 
     // GET /api/invoices/{id}

@@ -310,4 +310,90 @@ class InvoiceControllerTest {
                 .content("{\"paymentStatus\":\"paid\",\"paidAt\":\"2026-07-29\"}"))
             .andExpect(status().isUnauthorized());
     }
+
+    // --- F-20 収支ダッシュボード拡張 ----------------------------------------
+
+    // F-20 No.11
+    @Test
+    void getSummaryは売上と未回収と月別売上を返す() throws Exception {
+        MockHttpSession session = registerAndLogin();
+        Integer invoiceId = createIssuedInvoice(session);
+
+        mockMvc.perform(get("/api/invoices/summary")
+                .session(session)
+                .param("year", "2026")
+                .param("month", "7"))
+            .andExpect(status().isOk())
+            // invoiceBody()は税抜100,000＋消費税10,000＝税込110,000
+            .andExpect(jsonPath("$.salesAmount").value(110000))
+            .andExpect(jsonPath("$.unpaidAmount").value(110000))
+            .andExpect(jsonPath("$.overdueAmount").value(0))
+            // 1〜12月の配列で返り、データが無い月は0埋めされる
+            .andExpect(jsonPath("$.monthlySales.length()").value(12))
+            .andExpect(jsonPath("$.monthlySales[6]").value(110000))
+            .andExpect(jsonPath("$.monthlySales[0]").value(0));
+
+        // 入金を記録すると未回収から外れる（売上は発生主義のため変わらない）
+        mockMvc.perform(put("/api/invoices/" + invoiceId + "/payment-status")
+                .with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"paymentStatus\":\"paid\",\"paidAt\":\"2026-07-29\"}"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/invoices/summary")
+                .session(session)
+                .param("year", "2026")
+                .param("month", "7"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.salesAmount").value(110000))
+            .andExpect(jsonPath("$.unpaidAmount").value(0));
+    }
+
+    // F-20 追加：下書き・取消は売上に含まれない（API経路での確認）
+    @Test
+    void getSummaryは下書きと取消を売上に含めない() throws Exception {
+        MockHttpSession session = registerAndLogin();
+        Integer clientId = createClient(session);
+
+        // 下書きのまま残す
+        mockMvc.perform(post("/api/invoices")
+                .with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(invoiceBody(clientId)))
+            .andExpect(status().isCreated());
+
+        // 発行してから取消す
+        MvcResult createResult = mockMvc.perform(post("/api/invoices")
+                .with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(invoiceBody(clientId)))
+            .andExpect(status().isCreated())
+            .andReturn();
+        Integer canceledId = objectMapper
+            .readTree(createResult.getResponse().getContentAsString()).get("id").asInt();
+        mockMvc.perform(put("/api/invoices/" + canceledId + "/issue").with(csrf()).session(session))
+            .andExpect(status().isOk());
+        mockMvc.perform(put("/api/invoices/" + canceledId + "/cancel")
+                .with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"reason\":\"テストのため取消\"}"))
+            .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/invoices/summary")
+                .session(session)
+                .param("year", "2026")
+                .param("month", "7"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.salesAmount").value(0))
+            .andExpect(jsonPath("$.unpaidAmount").value(0));
+    }
+
+    // F-20 No.12
+    @Test
+    void getSummaryは未ログイン時に認証エラーになる() throws Exception {
+        mockMvc.perform(get("/api/invoices/summary")
+                .param("year", "2026")
+                .param("month", "7"))
+            .andExpect(status().isUnauthorized());
+    }
 }
