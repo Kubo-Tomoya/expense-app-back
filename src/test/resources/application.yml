@@ -1,0 +1,16 @@
+# テスト実行時のみ有効な設定
+spring:
+  sql:
+    init:
+      mode: always
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+# AuthServiceが@Valueで参照している値。
+# MailServiceは@MockitoBeanで偽物に差し替えているため、
+# この値が実際にメール送信で使われることはないが、
+# @Valueによる値の埋め込み自体は起動時に必ず行われるため、
+# 何らかのダミー値を用意しておく必要がある
+app:
+  frontend-url: http://localhost:5173

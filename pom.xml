@@ -64,6 +64,41 @@
 			<artifactId>spring-boot-starter-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<!-- 認証・認可機能一式（パスワード暗号化、セッション管理、URL単位のアクセス制御）を提供するSpring Security -->
+		<dependency>
+		    <groupId>org.springframework.boot</groupId>
+		    <artifactId>spring-boot-starter-security</artifactId>
+		</dependency>
+		<!-- メール送信機能。パスワード再設定用リンクをユーザーに届けるために使用 -->
+		<dependency>
+		    <groupId>org.springframework.boot</groupId>
+		    <artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
+		<!-- Testcontainers：テスト実行時にDockerでPostgreSQLコンテナを自動起動し、
+		     本番と同じDBエンジンでRepository層のテストを行えるようにする。
+		     H2等の代替DBと違い、TO_CHAR等のPostgreSQL固有関数もそのまま動作する -->
+		<dependency>
+		    <groupId>org.springframework.boot</groupId>
+		    <artifactId>spring-boot-testcontainers</artifactId>
+		    <scope>test</scope>
+		</dependency>
+		<dependency>
+		    <groupId>org.testcontainers</groupId>
+		    <artifactId>postgresql</artifactId>
+		    <scope>test</scope>
+		</dependency>
+		<dependency>
+		    <groupId>org.testcontainers</groupId>
+		    <artifactId>junit-jupiter</artifactId>
+		    <scope>test</scope>
+		</dependency>
+		
+		<!-- Spring Securityのテストサポート（Controller層のテストで使用） -->
+		<dependency>
+		    <groupId>org.springframework.security</groupId>
+		    <artifactId>spring-security-test</artifactId>
+		    <scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<build>
