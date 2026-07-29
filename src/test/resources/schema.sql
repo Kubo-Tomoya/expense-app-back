@@ -82,3 +82,60 @@ CREATE TABLE clients (
 );
 CREATE INDEX idx_clients_user_id ON clients(user_id);
 CREATE INDEX idx_clients_is_active ON clients(is_active);
+
+-- F-17（請求書作成）で追加。本番の13〜15のマイグレーションSQLと同じ定義
+CREATE TABLE invoices (
+    id                                 SERIAL       PRIMARY KEY,
+    user_id                            INTEGER      NOT NULL REFERENCES users(id),
+    client_id                          INTEGER      NOT NULL REFERENCES clients(id),
+    invoice_number                     VARCHAR(20),
+    issue_date                         DATE         NOT NULL,
+    due_date                           DATE         NOT NULL,
+    status                             VARCHAR(20)  NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'issued', 'canceled')),
+    subtotal_amount                    INTEGER      NOT NULL DEFAULT 0 CHECK (subtotal_amount >= 0),
+    tax_amount                         INTEGER      NOT NULL DEFAULT 0 CHECK (tax_amount >= 0),
+    total_amount                       INTEGER      NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+    client_name                        VARCHAR(100),
+    client_honorific                   VARCHAR(10),
+    client_address                     VARCHAR(255),
+    issuer_business_name               VARCHAR(100),
+    issuer_owner_name                  VARCHAR(100),
+    issuer_address                     VARCHAR(255),
+    issuer_invoice_registration_number VARCHAR(14),
+    payment_status                     VARCHAR(20)  NOT NULL DEFAULT 'unpaid'
+        CHECK (payment_status IN ('unpaid', 'paid')),
+    paid_at                            TIMESTAMP,
+    issued_at                          TIMESTAMP,
+    canceled_at                        TIMESTAMP,
+    canceled_reason                    VARCHAR(255),
+    created_at                         TIMESTAMP    NOT NULL DEFAULT NOW(),
+    updated_at                         TIMESTAMP    NOT NULL DEFAULT NOW(),
+    CONSTRAINT invoices_user_id_invoice_number_key UNIQUE (user_id, invoice_number)
+);
+CREATE INDEX idx_invoices_user_id ON invoices(user_id);
+CREATE INDEX idx_invoices_issue_date ON invoices(issue_date);
+CREATE INDEX idx_invoices_status ON invoices(status);
+CREATE INDEX idx_invoices_client_id ON invoices(client_id);
+
+CREATE TABLE invoice_items (
+    id            SERIAL         PRIMARY KEY,
+    invoice_id    INTEGER        NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
+    display_order INTEGER        NOT NULL DEFAULT 0,
+    description   VARCHAR(100)   NOT NULL,
+    quantity      DECIMAL(10,2)  NOT NULL CHECK (quantity > 0),
+    unit_price    INTEGER        NOT NULL CHECK (unit_price >= 0),
+    tax_category  VARCHAR(20)    NOT NULL DEFAULT 'taxable_10'
+        CHECK (tax_category IN ('taxable_10', 'taxable_8', 'tax_exempt')),
+    tax_rate      INTEGER        NOT NULL DEFAULT 10 CHECK (tax_rate IN (10, 8, 0)),
+    amount        INTEGER        NOT NULL CHECK (amount >= 0)
+);
+CREATE INDEX idx_invoice_items_invoice_id ON invoice_items(invoice_id);
+
+CREATE TABLE invoice_number_sequences (
+    user_id     INTEGER   NOT NULL REFERENCES users(id),
+    year        INTEGER   NOT NULL,
+    last_number INTEGER   NOT NULL DEFAULT 0 CHECK (last_number >= 0),
+    updated_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (user_id, year)
+);

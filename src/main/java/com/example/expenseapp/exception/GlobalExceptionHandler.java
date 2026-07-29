@@ -72,6 +72,20 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(Map.of("message", e.getMessage()));
     }
 
+    // 無効化済みの取引先を請求書の宛先に指定した（F-17）→ 400 Bad Request
+    @ExceptionHandler(InactiveClientException.class)
+    public ResponseEntity<Map<String, String>> handleInactiveClient(InactiveClientException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("message", e.getMessage()));
+    }
+
+    // 請求書のステータス上許されない操作（発行済みの編集・再発行等）（F-17）→ 400 Bad Request
+    @ExceptionHandler(InvalidInvoiceStateException.class)
+    public ResponseEntity<Map<String, String>> handleInvalidInvoiceState(InvalidInvoiceStateException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("message", e.getMessage()));
+    }
+
     /**
      * @Validによるバリデーションエラー（例：文字数不足、形式不正、必須項目未入力）発生時の処理。
      *
