@@ -20,6 +20,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
 import com.example.expenseapp.dto.request.InvoiceCancelRequestDto;
+import com.example.expenseapp.dto.request.InvoicePaymentRequestDto;
 import com.example.expenseapp.dto.request.InvoiceRequestDto;
 import com.example.expenseapp.dto.response.InvoiceResponseDto;
 import com.example.expenseapp.security.UserPrincipal;
@@ -100,6 +101,20 @@ public class InvoiceController {
             @PathVariable Integer id,
             @Valid @RequestBody InvoiceCancelRequestDto dto) {
         return ResponseEntity.ok(invoiceService.cancel(principal.getUser(), id, dto.getReason()));
+    }
+
+    // PUT /api/invoices/{id}/payment-status
+    // 入金状況の更新（F-19）。発行済みのみ。入金済みにする場合は入金日が必須
+    //
+    // 状態が2値の切替でpaid_atの更新しか伴わないため、発行・取消のように
+    // 専用エンドポイントへ分けず1本で受け取る
+    @PutMapping("/{id}/payment-status")
+    public ResponseEntity<InvoiceResponseDto> updatePaymentStatus(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Integer id,
+            @Valid @RequestBody InvoicePaymentRequestDto dto) {
+        return ResponseEntity.ok(invoiceService.updatePaymentStatus(
+            principal.getUser(), id, dto.getPaymentStatus(), dto.getPaidAt()));
     }
 
     // GET /api/invoices/{id}/pdf

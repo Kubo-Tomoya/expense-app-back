@@ -456,4 +456,104 @@ class InvoiceServiceTest {
 
         verify(invoiceRepository, never()).delete(any());
     }
+
+    // --- F-19 入金管理 ------------------------------------------------------
+
+    // F-19 No.1
+    @Test
+    void updatePaymentStatusは発行済みを入金済みにでき入金日が記録される() {
+        Invoice issued = existingInvoice(Invoice.STATUS_ISSUED, "INV-2026-0001");
+        when(invoiceRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(issued));
+        mockSaveReturningArgument();
+
+        InvoiceResponseDto result = invoiceService.updatePaymentStatus(
+            userA, 100, Invoice.PAYMENT_STATUS_PAID, LocalDate.of(2026, 8, 5));
+
+        assertThat(result.getPaymentStatus()).isEqualTo(Invoice.PAYMENT_STATUS_PAID);
+        // paid_atはTIMESTAMP型のため、入金日の0時として保持される
+        assertThat(result.getPaidAt()).isEqualTo(LocalDate.of(2026, 8, 5).atStartOfDay());
+    }
+
+    // F-19 No.2
+    @Test
+    void updatePaymentStatusは入金済みを未入金に戻せる() {
+        Invoice paid = existingInvoice(Invoice.STATUS_ISSUED, "INV-2026-0001");
+        paid.setPaymentStatus(Invoice.PAYMENT_STATUS_PAID);
+        paid.setPaidAt(LocalDate.of(2026, 8, 5).atStartOfDay());
+        when(invoiceRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(paid));
+        mockSaveReturningArgument();
+
+        InvoiceResponseDto result = invoiceService.updatePaymentStatus(
+            userA, 100, Invoice.PAYMENT_STATUS_UNPAID, null);
+
+        assertThat(result.getPaymentStatus()).isEqualTo(Invoice.PAYMENT_STATUS_UNPAID);
+        assertThat(result.getPaidAt()).isNull();
+    }
+
+    // F-19 No.3
+    @Test
+    void updatePaymentStatusは既に未入金のものを解除しても状態が変わらない() {
+        Invoice issued = existingInvoice(Invoice.STATUS_ISSUED, "INV-2026-0001");
+        when(invoiceRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(issued));
+        mockSaveReturningArgument();
+
+        // 求めている結果は同じであるため、冪等に扱いエラーとしない
+        InvoiceResponseDto result = invoiceService.updatePaymentStatus(
+            userA, 100, Invoice.PAYMENT_STATUS_UNPAID, null);
+
+        assertThat(result.getPaymentStatus()).isEqualTo(Invoice.PAYMENT_STATUS_UNPAID);
+        assertThat(result.getPaidAt()).isNull();
+    }
+
+    // F-19 No.4
+    @Test
+    void updatePaymentStatusは請求書番号とステータスに影響しない() {
+        Invoice issued = existingInvoice(Invoice.STATUS_ISSUED, "INV-2026-0001");
+        when(invoiceRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(issued));
+        mockSaveReturningArgument();
+
+        InvoiceResponseDto result = invoiceService.updatePaymentStatus(
+            userA, 100, Invoice.PAYMENT_STATUS_PAID, LocalDate.of(2026, 8, 5));
+
+        assertThat(result.getInvoiceNumber()).isEqualTo("INV-2026-0001");
+        assertThat(result.getStatus()).isEqualTo(Invoice.STATUS_ISSUED);
+    }
+
+    // F-19 No.5
+    @Test
+    void updatePaymentStatusは下書きの入金状況を更新できない() {
+        Invoice draft = existingInvoice(Invoice.STATUS_DRAFT, null);
+        when(invoiceRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(draft));
+
+        assertThatThrownBy(() -> invoiceService.updatePaymentStatus(
+            userA, 100, Invoice.PAYMENT_STATUS_PAID, LocalDate.of(2026, 8, 5)))
+            .isInstanceOf(InvalidInvoiceStateException.class);
+
+        verify(invoiceRepository, never()).save(any());
+    }
+
+    // F-19 No.6
+    @Test
+    void updatePaymentStatusは取消済みの入金状況を更新できない() {
+        Invoice canceled = existingInvoice(Invoice.STATUS_CANCELED, "INV-2026-0001");
+        when(invoiceRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(canceled));
+
+        assertThatThrownBy(() -> invoiceService.updatePaymentStatus(
+            userA, 100, Invoice.PAYMENT_STATUS_PAID, LocalDate.of(2026, 8, 5)))
+            .isInstanceOf(InvalidInvoiceStateException.class);
+
+        verify(invoiceRepository, never()).save(any());
+    }
+
+    // F-19 No.7
+    @Test
+    void updatePaymentStatusは他人の請求書を更新できない() {
+        when(invoiceRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> invoiceService.updatePaymentStatus(
+            userA, 100, Invoice.PAYMENT_STATUS_PAID, LocalDate.of(2026, 8, 5)))
+            .isInstanceOf(ResourceNotFoundException.class);
+
+        verify(invoiceRepository, never()).save(any());
+    }
 }
