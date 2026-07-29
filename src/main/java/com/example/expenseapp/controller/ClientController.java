@@ -65,4 +65,12 @@ public class ClientController {
             @PathVariable Integer id) {
         return ResponseEntity.ok(clientService.deactivate(principal.getUser(), id));
     }
+
+    // 再有効化（F-16の追加要件）。誤って無効化した取引先を戻すための操作
+    @PutMapping("/{id}/activate")
+    public ResponseEntity<ClientResponseDto> activate(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Integer id) {
+        return ResponseEntity.ok(clientService.activate(principal.getUser(), id));
+    }
 }
