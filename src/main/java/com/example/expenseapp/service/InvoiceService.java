@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +19,7 @@ import com.example.expenseapp.dto.request.InvoiceItemRequestDto;
 import com.example.expenseapp.dto.request.InvoiceRequestDto;
 import com.example.expenseapp.dto.response.InvoiceItemResponseDto;
 import com.example.expenseapp.dto.response.InvoiceResponseDto;
+import com.example.expenseapp.dto.response.InvoiceSummaryResponseDto;
 import com.example.expenseapp.dto.response.InvoiceTaxSummaryDto;
 import com.example.expenseapp.entity.BusinessProfile;
 import com.example.expenseapp.entity.Client;
@@ -224,6 +226,30 @@ public class InvoiceService {
         Invoice invoice = findOwned(user, id);
         requireDraft(invoice, "発行済み・取消済みの請求書は削除できません");
         invoiceRepository.delete(invoice);
+    }
+
+    /**
+     * 収支ダッシュボード用の集計（F-20）。
+     *
+     * 売上は指定月・発行日ベース・発行済みのみ（下書きと取消済みは含まない）。
+     * 未回収と期日超過は月で絞らず全期間を対象とする（債権残高であり月次のフローではないため、
+     * 当月発行分だけを集計すると過去に発行した未回収が抜けて資金繰りの確認に使えない）。
+     *
+     * 収支（売上−経費）はフロント側で経費の集計と組み合わせて算出する
+     */
+    public InvoiceSummaryResponseDto getSummary(User user, Integer year, Integer month) {
+        Integer salesAmount = invoiceRepository.sumSalesByUserIdAndYearMonth(user.getId(), year, month);
+        Integer unpaidAmount = invoiceRepository.sumUnpaidByUserId(user.getId());
+        Integer overdueAmount = invoiceRepository.sumOverdueByUserId(user.getId(), LocalDate.now());
+
+        // 売上が無い月は行自体が返らないため、1〜12月の配列に0埋めして返す
+        List<Integer> monthlySales = new ArrayList<>(Collections.nCopies(12, 0));
+        for (Object[] row : invoiceRepository.findMonthlySalesByUserIdAndYear(user.getId(), year)) {
+            int monthIndex = ((Number) row[0]).intValue() - 1;
+            monthlySales.set(monthIndex, ((Number) row[1]).intValue());
+        }
+
+        return new InvoiceSummaryResponseDto(salesAmount, unpaidAmount, overdueAmount, monthlySales);
     }
 
     /**
