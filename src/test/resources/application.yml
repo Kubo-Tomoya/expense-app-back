@@ -1,4 +1,9 @@
 # テスト実行時のみ有効な設定
+#
+# 注意：このファイルはクラスパス上で src/main/resources/application.yml を
+# 「上書き」ではなく「丸ごと置き換える」ため、本番側に書いた設定はテストでは一切効かない。
+# テストで必要な設定はここに書く必要がある。
+# DB接続先だけは例外で、TestcontainersConfig の @ServiceConnection が実行時に注入する
 spring:
   sql:
     init:
@@ -6,6 +11,16 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
+  # hostを書かないとJavaMailSenderのBeanが作られず、MailServiceの生成に失敗する。
+  # 本番では username / password を環境変数（MAIL_USERNAME / MAIL_APP_PASSWORD）から読むが、
+  # テストでは環境変数の有無に実行結果を左右されたくないためダミー値を固定で置く。
+  # MailServiceが@MockitoBeanで差し替えられていない場合でもコンテキストが起動できるようにする目的で、
+  # 実際にこの値でメールが送信されることはない
+  mail:
+    host: smtp.example.com
+    port: 587
+    username: test@example.com
+    password: dummy-password
 
 # AuthServiceが@Valueで参照している値。
 # MailServiceは@MockitoBeanで偽物に差し替えているため、
@@ -14,3 +29,7 @@ spring:
 # 何らかのダミー値を用意しておく必要がある
 app:
   frontend-url: http://localhost:5173
+  pdf:
+    # InvoicePdfService（F-18）が参照するフォント。@Valueに既定値があるため無くても起動するが、
+    # 本番と同じ値を明示しておく
+    font-path: fonts/ipaexg.ttf
