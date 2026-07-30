@@ -97,6 +97,7 @@ public class ExpenseService {
         expense.setExpenseDate(dto.getExpenseDate());
         expense.setMemo(dto.getMemo());
         expense.setStatus(dto.getStatus());
+        applyTaxFields(expense, dto);
         Expense saved = expenseRepository.save(expense);
         return toResponseDto(saved);
     }
@@ -215,7 +216,44 @@ public class ExpenseService {
         dto.setReceiptImagePath(expense.getReceiptImagePath());
         dto.setStatus(expense.getStatus());
         dto.setCreatedAt(expense.getCreatedAt());
+        dto.setTaxCategory(expense.getTaxCategory());
+        dto.setIsQualifiedInvoice(expense.getIsQualifiedInvoice());
+        dto.setVendorRegistrationNumber(expense.getVendorRegistrationNumber());
         return dto;
+    }
+
+    /**
+     * 消費税区分と適格請求書の情報を反映する（F-21・F-22）。
+     * 登録・更新で同じルールを適用するため共通化している。
+     *
+     * ・課税区分（10%・軽減8%）以外は、適格請求書の情報を保持しない。
+     * 　消費税の控除対象ではないため記録する意味がなく、
+     * 　区分を切り替えた後に古い判定が残るのを防ぐ
+     * ・登録番号が入力されている場合は適格請求書フラグをtrueにする。
+     * 　ただしリクエストで明示的にfalseが指定されている場合は上書きしない
+     * 　（ユーザーの手動判断を尊重する）
+     */
+    private void applyTaxFields(Expense expense, ExpenseRequestDto dto) {
+        expense.setTaxCategory(dto.getTaxCategory());
+
+        if (!expense.isTaxable()) {
+            expense.setIsQualifiedInvoice(null);
+            expense.setVendorRegistrationNumber(null);
+            return;
+        }
+
+        // 空文字はフォームで入力を消した場合に送られてくるためnullに寄せる
+        String number = dto.getVendorRegistrationNumber();
+        if (number != null && number.isEmpty()) {
+            number = null;
+        }
+        expense.setVendorRegistrationNumber(number);
+
+        Boolean qualified = dto.getIsQualifiedInvoice();
+        if (qualified == null && number != null) {
+            qualified = Boolean.TRUE;
+        }
+        expense.setIsQualifiedInvoice(qualified);
     }
 
     // RequestDto → Entity 変換
@@ -232,6 +270,7 @@ public class ExpenseService {
         expense.setExpenseDate(dto.getExpenseDate());
         expense.setMemo(dto.getMemo());
         expense.setStatus(dto.getStatus());
+        applyTaxFields(expense, dto);
         return expense;
     }
 
