@@ -37,6 +37,12 @@ CREATE TABLE expenses (
     receipt_image_path VARCHAR(255),
     status VARCHAR(20) NOT NULL DEFAULT 'registered'
         CHECK (status IN ('registered', 'draft')),
+    -- F-21：消費税区分。税抜金額・消費税額は列で持たず、税込金額と区分から算出する
+    tax_category VARCHAR(20) NOT NULL DEFAULT 'taxable_10'
+        CHECK (tax_category IN ('taxable_10', 'taxable_8', 'tax_exempt', 'non_taxable')),
+    -- F-22：受領した領収書の適格請求書の判定。課税区分以外はnull
+    is_qualified_invoice BOOLEAN,
+    vendor_registration_number VARCHAR(14),
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMP

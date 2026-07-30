@@ -525,4 +525,197 @@ class ExpenseServiceTest {
         assertThat(result.getCategoryBreakdown()).isEmpty();
         assertThat(result.getDraftAmount()).isEqualTo(0);
     }
+
+    // --- F-21 消費税区分 / F-22 適格請求書チェック ---------------------------
+
+    /**
+     * 登録用のリクエストDTOを作る。消費税区分以外は固定値でよいため共通化する
+     */
+    private ExpenseRequestDto taxRequestDto(String taxCategory) {
+        ExpenseRequestDto dto = new ExpenseRequestDto();
+        dto.setTitle("消耗品");
+        dto.setAmount(11000);
+        dto.setCategoryId(10);
+        dto.setExpenseDate(LocalDate.of(2026, 7, 30));
+        dto.setTaxCategory(taxCategory);
+        return dto;
+    }
+
+    /**
+     * create()が成功する状況（自分のカテゴリが見つかる／saveは引数をそのまま返す）を作る
+     */
+    private void mockCreateSucceeds() {
+        when(categoryRepository.findByIdAndUserId(10, 1)).thenReturn(Optional.of(categoryA));
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(i -> i.getArgument(0));
+    }
+
+    /**
+     * update()が成功する状況を作り、対象の既存経費を返す
+     */
+    private Expense mockUpdateSucceeds() {
+        Expense existing = new Expense();
+        existing.setId(100);
+        existing.setUser(userA);
+        existing.setCategory(categoryA);
+        existing.setTaxCategory(Expense.TAX_CATEGORY_TAXABLE_10);
+
+        when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(existing));
+        when(categoryRepository.findByIdAndUserId(10, 1)).thenReturn(Optional.of(categoryA));
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(i -> i.getArgument(0));
+        return existing;
+    }
+
+    // F-21 No.1
+    @Test
+    void createは消費税区分を保存する() {
+        mockCreateSucceeds();
+
+        ExpenseResponseDto result =
+            expenseService.create(userA, taxRequestDto(Expense.TAX_CATEGORY_TAXABLE_8));
+
+        assertThat(result.getTaxCategory()).isEqualTo("taxable_8");
+    }
+
+    // F-21 No.2
+    @Test
+    void createは区分を省略すると課税10パーセントになる() {
+        mockCreateSucceeds();
+
+        // DTOの既定値（taxable_10）のまま送られてくるケース
+        ExpenseRequestDto dto = new ExpenseRequestDto();
+        dto.setTitle("消耗品");
+        dto.setAmount(11000);
+        dto.setCategoryId(10);
+        dto.setExpenseDate(LocalDate.of(2026, 7, 30));
+
+        ExpenseResponseDto result = expenseService.create(userA, dto);
+
+        assertThat(result.getTaxCategory()).isEqualTo("taxable_10");
+    }
+
+    // F-21 No.4
+    @Test
+    void updateは消費税区分を変更できる() {
+        mockUpdateSucceeds();
+
+        ExpenseResponseDto result =
+            expenseService.update(userA, 100, taxRequestDto(Expense.TAX_CATEGORY_TAX_EXEMPT));
+
+        assertThat(result.getTaxCategory()).isEqualTo("tax_exempt");
+    }
+
+    // F-21 No.5
+    @Test
+    void updateで課税区分以外に変更すると適格請求書の情報がnullになる() {
+        Expense existing = mockUpdateSucceeds();
+        existing.setIsQualifiedInvoice(true);
+        existing.setVendorRegistrationNumber("T1234567890123");
+
+        ExpenseRequestDto dto = taxRequestDto(Expense.TAX_CATEGORY_NON_TAXABLE);
+        dto.setIsQualifiedInvoice(true);
+        dto.setVendorRegistrationNumber("T1234567890123");
+
+        ExpenseResponseDto result = expenseService.update(userA, 100, dto);
+
+        // 消費税の控除対象ではなくなるため、判定と根拠の番号をどちらも残さない
+        assertThat(result.getIsQualifiedInvoice()).isNull();
+        assertThat(result.getVendorRegistrationNumber()).isNull();
+    }
+
+    // F-22 No.1
+    @Test
+    void createは適格請求書フラグと登録番号を保存する() {
+        mockCreateSucceeds();
+
+        ExpenseRequestDto dto = taxRequestDto(Expense.TAX_CATEGORY_TAXABLE_10);
+        dto.setIsQualifiedInvoice(true);
+        dto.setVendorRegistrationNumber("T1234567890123");
+
+        ExpenseResponseDto result = expenseService.create(userA, dto);
+
+        assertThat(result.getIsQualifiedInvoice()).isTrue();
+        assertThat(result.getVendorRegistrationNumber()).isEqualTo("T1234567890123");
+    }
+
+    // F-22 No.2
+    @Test
+    void createは登録番号を入力するとフラグが自動でtrueになる() {
+        mockCreateSucceeds();
+
+        ExpenseRequestDto dto = taxRequestDto(Expense.TAX_CATEGORY_TAXABLE_10);
+        dto.setVendorRegistrationNumber("T1234567890123"); // フラグは未指定
+
+        ExpenseResponseDto result = expenseService.create(userA, dto);
+
+        assertThat(result.getIsQualifiedInvoice()).isTrue();
+    }
+
+    // F-22 No.3
+    @Test
+    void createはフラグを手動でfalseにできる() {
+        mockCreateSucceeds();
+
+        ExpenseRequestDto dto = taxRequestDto(Expense.TAX_CATEGORY_TAXABLE_10);
+        dto.setVendorRegistrationNumber("T1234567890123");
+        dto.setIsQualifiedInvoice(false); // 番号があっても手動の判断を尊重する
+
+        ExpenseResponseDto result = expenseService.create(userA, dto);
+
+        assertThat(result.getIsQualifiedInvoice()).isFalse();
+        assertThat(result.getVendorRegistrationNumber()).isEqualTo("T1234567890123");
+    }
+
+    // F-22 No.4
+    @Test
+    void createは非課税の経費のフラグをnullにする() {
+        mockCreateSucceeds();
+
+        ExpenseRequestDto dto = taxRequestDto(Expense.TAX_CATEGORY_TAX_EXEMPT);
+        dto.setIsQualifiedInvoice(true);
+
+        ExpenseResponseDto result = expenseService.create(userA, dto);
+
+        assertThat(result.getIsQualifiedInvoice()).isNull();
+    }
+
+    // F-22 No.5
+    @Test
+    void createは不課税の経費のフラグをnullにする() {
+        mockCreateSucceeds();
+
+        ExpenseRequestDto dto = taxRequestDto(Expense.TAX_CATEGORY_NON_TAXABLE);
+        dto.setIsQualifiedInvoice(true);
+
+        ExpenseResponseDto result = expenseService.create(userA, dto);
+
+        assertThat(result.getIsQualifiedInvoice()).isNull();
+    }
+
+    // F-22 No.9
+    @Test
+    void updateで登録番号を後から追加するとフラグがtrueになる() {
+        mockUpdateSucceeds();
+
+        ExpenseRequestDto dto = taxRequestDto(Expense.TAX_CATEGORY_TAXABLE_10);
+        dto.setVendorRegistrationNumber("T9999999999999");
+
+        ExpenseResponseDto result = expenseService.update(userA, 100, dto);
+
+        assertThat(result.getVendorRegistrationNumber()).isEqualTo("T9999999999999");
+        assertThat(result.getIsQualifiedInvoice()).isTrue();
+    }
+
+    @Test
+    void 登録番号を空文字で送るとnullとして保存される() {
+        mockCreateSucceeds();
+
+        ExpenseRequestDto dto = taxRequestDto(Expense.TAX_CATEGORY_TAXABLE_10);
+        dto.setVendorRegistrationNumber(""); // フォームで一度入力してから消した場合
+
+        ExpenseResponseDto result = expenseService.create(userA, dto);
+
+        assertThat(result.getVendorRegistrationNumber()).isNull();
+        // 番号が無いのでフラグも自動trueにはしない
+        assertThat(result.getIsQualifiedInvoice()).isNull();
+    }
 }

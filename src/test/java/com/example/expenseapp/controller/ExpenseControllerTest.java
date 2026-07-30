@@ -165,4 +165,102 @@ class ExpenseControllerTest {
                 .session(user.session()))
             .andExpect(status().isNoContent());
     }
+
+    // ===== F-21 消費税区分 / F-22 適格請求書チェック =====
+
+    // F-21 No.11／F-22 No.10
+    @Test
+    void createとgetのレスポンスに消費税区分と適格請求書の情報が含まれる() throws Exception {
+        TestUser user = registerAndLogin();
+
+        String body = "{\"title\":\"書籍代\",\"amount\":10800,\"categoryId\":" + user.categoryId()
+            + ",\"expenseDate\":\"2026-07-30\",\"taxCategory\":\"taxable_8\""
+            + ",\"vendorRegistrationNumber\":\"T1234567890123\"}";
+
+        MvcResult createResult = mockMvc.perform(post("/api/expenses")
+                .with(csrf())
+                .session(user.session())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.taxCategory").value("taxable_8"))
+            // 登録番号を入力しているため、フラグは自動でtrueになる
+            .andExpect(jsonPath("$.isQualifiedInvoice").value(true))
+            .andExpect(jsonPath("$.vendorRegistrationNumber").value("T1234567890123"))
+            .andReturn();
+
+        Integer expenseId = new ObjectMapper()
+            .readTree(createResult.getResponse().getContentAsString())
+            .get("id").asInt();
+
+        mockMvc.perform(get("/api/expenses/" + expenseId).session(user.session()))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.taxCategory").value("taxable_8"))
+            .andExpect(jsonPath("$.isQualifiedInvoice").value(true))
+            .andExpect(jsonPath("$.vendorRegistrationNumber").value("T1234567890123"));
+    }
+
+    @Test
+    void createは消費税区分を省略すると課税10パーセントで登録される() throws Exception {
+        TestUser user = registerAndLogin();
+
+        String body = "{\"title\":\"消耗品\",\"amount\":1100,\"categoryId\":" + user.categoryId()
+            + ",\"expenseDate\":\"2026-07-30\"}";
+
+        mockMvc.perform(post("/api/expenses")
+                .with(csrf())
+                .session(user.session())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.taxCategory").value("taxable_10"))
+            // 登録番号もフラグも指定していないためnullのまま
+            .andExpect(jsonPath("$.isQualifiedInvoice").doesNotExist());
+    }
+
+    @Test
+    void createは定義外の消費税区分を400で拒否する() throws Exception {
+        TestUser user = registerAndLogin();
+
+        String body = "{\"title\":\"消耗品\",\"amount\":1100,\"categoryId\":" + user.categoryId()
+            + ",\"expenseDate\":\"2026-07-30\",\"taxCategory\":\"taxable_5\"}";
+
+        mockMvc.perform(post("/api/expenses")
+                .with(csrf())
+                .session(user.session())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.errors").isArray());
+    }
+
+    // F-21 No.12
+    @Test
+    void getSummaryの合計金額は消費税区分を追加しても税込のまま変わらない() throws Exception {
+        TestUser user = registerAndLogin();
+
+        // 課税10%（税込1,100円）と非課税（税込1,000円）を1件ずつ登録する
+        String taxable = "{\"title\":\"消耗品\",\"amount\":1100,\"categoryId\":" + user.categoryId()
+            + ",\"expenseDate\":\"2026-07-15\",\"taxCategory\":\"taxable_10\"}";
+        String exempt = "{\"title\":\"家賃\",\"amount\":1000,\"categoryId\":" + user.categoryId()
+            + ",\"expenseDate\":\"2026-07-16\",\"taxCategory\":\"tax_exempt\"}";
+
+        for (String body : new String[] { taxable, exempt }) {
+            mockMvc.perform(post("/api/expenses")
+                    .with(csrf())
+                    .session(user.session())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body))
+                .andExpect(status().isCreated());
+        }
+
+        // F-20で定めた「集計金額は税込」の原則が変わっていないことの確認。
+        // 税抜に変換されていれば2,100円にはならない
+        mockMvc.perform(get("/api/expenses/summary")
+                .session(user.session())
+                .param("year", "2026")
+                .param("month", "7"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.totalAmount").value(2100));
+    }
 }
