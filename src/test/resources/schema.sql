@@ -20,6 +20,9 @@ CREATE TABLE categories (
     user_id INTEGER NOT NULL REFERENCES users(id),
     name VARCHAR(50) NOT NULL,
     display_order INTEGER NOT NULL DEFAULT 0,
+    -- F-28：確定申告の勘定科目名（未設定はF-23の集計で「雑費」として扱う）と有効フラグ
+    tax_form_category VARCHAR(50),
+    is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     CONSTRAINT categories_user_id_name_key UNIQUE (user_id, name)
