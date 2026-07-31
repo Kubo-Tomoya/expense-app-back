@@ -193,6 +193,28 @@ class CategoryControllerTest {
     }
 
     @Test
+    void 無効化したカテゴリでは経費を新規登録できない() throws Exception {
+        MockHttpSession session = registerAndLogin();
+        int categoryId = getCategories(session).get(0).get("id").asInt();
+
+        mockMvc.perform(put("/api/categories/" + categoryId + "/deactivate")
+                .with(csrf()).session(session))
+            .andExpect(status().isOk());
+
+        // 画面のプルダウンからは除外されるが、APIを直接呼ばれた場合も400で弾く
+        String body = "{\"title\":\"消耗品\",\"amount\":1100,\"categoryId\":" + categoryId
+            + ",\"expenseDate\":\"2026-07-30\"}";
+
+        mockMvc.perform(post("/api/expenses")
+                .with(csrf()).session(session)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.message").value(
+                org.hamcrest.Matchers.containsString("無効化されたカテゴリ")));
+    }
+
+    @Test
     void 未ログイン時は認証エラーになる() throws Exception {
         mockMvc.perform(post("/api/categories")
                 .with(csrf())

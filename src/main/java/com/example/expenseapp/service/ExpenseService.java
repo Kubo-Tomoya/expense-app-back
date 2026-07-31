@@ -26,6 +26,7 @@ import com.example.expenseapp.dto.response.YearSummaryResponseDto;
 import com.example.expenseapp.entity.Category;
 import com.example.expenseapp.entity.Expense;
 import com.example.expenseapp.entity.User;
+import com.example.expenseapp.exception.InactiveCategoryException;
 import com.example.expenseapp.exception.InvalidFileException;
 import com.example.expenseapp.exception.ResourceNotFoundException;
 import com.example.expenseapp.repository.CategoryRepository;
@@ -87,10 +88,12 @@ public class ExpenseService {
         Expense expense = expenseRepository.findByIdAndUserId(id, user.getId())
             .orElseThrow(() ->
                 new ResourceNotFoundException("経費が見つかりません。ID: " + id));
-        Category category = categoryRepository.findByIdAndUserId(dto.getCategoryId(), user.getId())
-            .orElseThrow(() ->
-                new ResourceNotFoundException("カテゴリが見つかりません。ID: "
-                    + dto.getCategoryId()));
+        // カテゴリを別のものに変更する場合のみ、有効なカテゴリかを検証する。
+        // 同じカテゴリを選び直しただけなら、既に無効化されていても更新を通す
+        // （編集中の経費の分類が意図せず変わることを防ぐため。F-17の取引先と同じ方針）
+        Category category = expense.getCategory().getId().equals(dto.getCategoryId())
+            ? expense.getCategory()
+            : findActiveCategory(user, dto.getCategoryId());
         expense.setTitle(dto.getTitle());
         expense.setAmount(dto.getAmount());
         expense.setCategory(category);
@@ -256,13 +259,28 @@ public class ExpenseService {
         expense.setIsQualifiedInvoice(qualified);
     }
 
+    /**
+     * 経費に紐付けられるカテゴリを取得する（F-28）。
+     * 他人のカテゴリは404、無効化済みのカテゴリは400で弾く。
+     *
+     * 画面（S-02・S-03）ではプルダウンから無効カテゴリを除外しているが、
+     * APIを直接呼ばれた場合に無効カテゴリの経費を作れてしまうため、
+     * サーバー側でも確認する。取引先（F-17のfindActiveClient）と同じ方針
+     */
+    private Category findActiveCategory(User user, Integer categoryId) {
+        Category category = categoryRepository.findByIdAndUserId(categoryId, user.getId())
+            .orElseThrow(() ->
+                new ResourceNotFoundException("カテゴリが見つかりません。ID: " + categoryId));
+        if (Boolean.FALSE.equals(category.getIsActive())) {
+            throw new InactiveCategoryException("無効化されたカテゴリは選択できません");
+        }
+        return category;
+    }
+
     // RequestDto → Entity 変換
     // カテゴリを取得する際も、他人のカテゴリIDが指定されていないかをuser_idで確認する
     private Expense toEntity(User user, ExpenseRequestDto dto) {
-        Category category = categoryRepository.findByIdAndUserId(dto.getCategoryId(), user.getId())
-            .orElseThrow(() ->
-                new ResourceNotFoundException("カテゴリが見つかりません。ID: "
-                    + dto.getCategoryId()));
+        Category category = findActiveCategory(user, dto.getCategoryId());
         Expense expense = new Expense();
         expense.setTitle(dto.getTitle());
         expense.setAmount(dto.getAmount());

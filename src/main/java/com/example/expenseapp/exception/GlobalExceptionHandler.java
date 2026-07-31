@@ -94,6 +94,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 .body(Map.of("message", e.getMessage()));
     }
 
+    // 無効化済みのカテゴリを経費に指定した（F-28）→ 400 Bad Request
+    // 取引先のInactiveClientException（F-17）と同じ扱い
+    @ExceptionHandler(InactiveCategoryException.class)
+    public ResponseEntity<Map<String, String>> handleInactiveCategory(InactiveCategoryException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Map.of("message", e.getMessage()));
+    }
+
     /**
      * @Validによるバリデーションエラー（例：文字数不足、形式不正、必須項目未入力）発生時の処理。
      *
