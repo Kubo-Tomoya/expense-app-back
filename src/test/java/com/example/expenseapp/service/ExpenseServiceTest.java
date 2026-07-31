@@ -23,6 +23,7 @@ import com.example.expenseapp.dto.response.YearSummaryResponseDto;
 import com.example.expenseapp.entity.Category;
 import com.example.expenseapp.entity.Expense;
 import com.example.expenseapp.entity.User;
+import com.example.expenseapp.exception.InactiveCategoryException;
 import com.example.expenseapp.exception.ResourceNotFoundException;
 import com.example.expenseapp.repository.CategoryRepository;
 import com.example.expenseapp.repository.ExpenseRepository;
@@ -209,8 +210,9 @@ class ExpenseServiceTest {
         dto.setExpenseDate(LocalDate.of(2026, 7, 1));
         dto.setStatus("draft"); // 下書きに変更
 
+        // カテゴリを変更していないため、F-28以降はカテゴリの再取得を行わない
+        // （同じカテゴリを選び直した場合は無効化済みでも通す仕様のため）
         when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(expense));
-        when(categoryRepository.findByIdAndUserId(10, 1)).thenReturn(Optional.of(categoryA));
         when(expenseRepository.save(any(Expense.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ExpenseResponseDto result = expenseService.update(userA, 100, dto);
@@ -428,8 +430,8 @@ class ExpenseServiceTest {
         dto.setExpenseDate(LocalDate.of(2026, 7, 15));
         dto.setStatus("registered");
 
+        // カテゴリを変更していないため、F-28以降はカテゴリの再取得を行わない
         when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(expense));
-        when(categoryRepository.findByIdAndUserId(10, 1)).thenReturn(Optional.of(categoryA));
         when(expenseRepository.save(any(Expense.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
         ExpenseResponseDto result = expenseService.update(userA, 100, dto);
@@ -559,8 +561,8 @@ class ExpenseServiceTest {
         existing.setCategory(categoryA);
         existing.setTaxCategory(Expense.TAX_CATEGORY_TAXABLE_10);
 
+        // カテゴリは変更しない前提のため、カテゴリの再取得はスタブしない（F-28以降）
         when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(existing));
-        when(categoryRepository.findByIdAndUserId(10, 1)).thenReturn(Optional.of(categoryA));
         when(expenseRepository.save(any(Expense.class))).thenAnswer(i -> i.getArgument(0));
         return existing;
     }
@@ -703,6 +705,86 @@ class ExpenseServiceTest {
 
         assertThat(result.getVendorRegistrationNumber()).isEqualTo("T9999999999999");
         assertThat(result.getIsQualifiedInvoice()).isTrue();
+    }
+
+    // --- F-28 無効化されたカテゴリの扱い -------------------------------------
+
+    // 画面（S-02・S-03）ではプルダウンから除外しているが、
+    // APIを直接呼ばれた場合にサーバー側でも弾けることを確認する
+    @Test
+    void createは無効化されたカテゴリを指定できない() {
+        Category inactive = new Category();
+        inactive.setId(10);
+        inactive.setUser(userA);
+        inactive.setName("旧カテゴリ");
+        inactive.setIsActive(false);
+
+        when(categoryRepository.findByIdAndUserId(10, 1)).thenReturn(Optional.of(inactive));
+
+        assertThatThrownBy(() ->
+                expenseService.create(userA, taxRequestDto(Expense.TAX_CATEGORY_TAXABLE_10)))
+            .isInstanceOf(InactiveCategoryException.class)
+            .hasMessageContaining("無効化されたカテゴリ");
+
+        verify(expenseRepository, never()).save(any());
+    }
+
+    @Test
+    void updateは同じカテゴリを選び直した場合は無効化済みでも通す() {
+        // 編集中の経費の分類が意図せず変わるのを防ぐため（F-17の取引先と同じ方針）
+        Category inactive = new Category();
+        inactive.setId(10);
+        inactive.setUser(userA);
+        inactive.setName("旧カテゴリ");
+        inactive.setIsActive(false);
+
+        Expense existing = new Expense();
+        existing.setId(100);
+        existing.setUser(userA);
+        existing.setCategory(inactive);
+        existing.setTaxCategory(Expense.TAX_CATEGORY_TAXABLE_10);
+
+        when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(existing));
+        when(expenseRepository.save(any(Expense.class))).thenAnswer(i -> i.getArgument(0));
+
+        ExpenseResponseDto result =
+            expenseService.update(userA, 100, taxRequestDto(Expense.TAX_CATEGORY_TAXABLE_10));
+
+        assertThat(result.getCategoryName()).isEqualTo("旧カテゴリ");
+        // 同じカテゴリのため、有効かどうかの確認（＝カテゴリの再取得）は行わない
+        verify(categoryRepository, never()).findByIdAndUserId(anyInt(), anyInt());
+    }
+
+    @Test
+    void updateは別の無効化されたカテゴリには変更できない() {
+        Category current = new Category();
+        current.setId(10);
+        current.setUser(userA);
+        current.setName("交通費");
+        current.setIsActive(true);
+
+        Category otherInactive = new Category();
+        otherInactive.setId(11);
+        otherInactive.setUser(userA);
+        otherInactive.setName("旧カテゴリ");
+        otherInactive.setIsActive(false);
+
+        Expense existing = new Expense();
+        existing.setId(100);
+        existing.setUser(userA);
+        existing.setCategory(current);
+        existing.setTaxCategory(Expense.TAX_CATEGORY_TAXABLE_10);
+
+        when(expenseRepository.findByIdAndUserId(100, 1)).thenReturn(Optional.of(existing));
+        when(categoryRepository.findByIdAndUserId(11, 1)).thenReturn(Optional.of(otherInactive));
+
+        ExpenseRequestDto dto = taxRequestDto(Expense.TAX_CATEGORY_TAXABLE_10);
+        dto.setCategoryId(11);
+
+        assertThatThrownBy(() -> expenseService.update(userA, 100, dto))
+            .isInstanceOf(InactiveCategoryException.class);
+
+        verify(expenseRepository, never()).save(any());
     }
 
     @Test
